@@ -20,9 +20,11 @@ impl Service for RequestProxy {
     type Future = Box<Future<Item = Self::Response, Error = Self::Error>>;
 
     fn call(&self, req: Request) -> Self::Future {
+        let (method, uri, version, headers, body) = req.deconstruct();
+
         Box::new(
             // Get the request body stream
-            req.body()
+            body
                 // Fold it into a Vec<u8>
                 .fold(Vec::new(), |mut acc, chunk| {
                     acc.extend_from_slice(chunk.as_ref());
@@ -32,7 +34,7 @@ impl Service for RequestProxy {
                 .map(move |value| String::from_utf8(value).unwrap())
                 // Echo the body and return a basic response
                 .and_then(move |body| {
-                    println!("{}", body);
+                    println!("{} {} {}\n{}\n{}", &method, &uri, version, headers, body);
 
                     futures::future::ok(
                         Response::new()
