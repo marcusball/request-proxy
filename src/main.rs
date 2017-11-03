@@ -37,6 +37,45 @@ impl Service for RequestProxy {
     }
 } 
 
+struct ProxyOutput {
+    requests: Arc<Mutex<Vec<Request<::hyper::Body>>>>
+}
+
+impl Service for ProxyOutput {
+    type Request = Request;
+    type Response = Response;
+    type Error = hyper::Error;
+
+    type Future = Box<Future<Item = Self::Response, Error = Self::Error>>;
+
+    fn call(&self, _: Request) -> Self::Future {
+        let req = self.requests.lock().unwrap().pop(); 
+
+        if req.is_none() {
+            return Box::new(futures::future::ok(Response::new().with_body("NONE")));
+        }
+
+        let (method, uri, version, headers, body) = req.unwrap().deconstruct();
+
+        Box::new(
+            body.fold(Vec::new(), |mut acc, chunk| {
+                acc.extend_from_slice(chunk.as_ref());
+                Ok::<_, hyper::Error>(acc)
+            })
+            .map(move |value| String::from_utf8(value).unwrap())
+            .and_then(move |body| {
+                println!("{} {} {}\n{}\n{}", &method, &uri, version, headers, body);
+
+                futures::future::ok(
+                    Response::new()
+                        .with_header(ContentLength(PHRASE.len() as u64))
+                        .with_body(PHRASE),
+                )
+            })
+        )
+    }
+} 
+
 
 fn main() {
     let in_addr = "127.0.0.1:3000".parse().unwrap();
@@ -51,7 +90,7 @@ fn main() {
     });
 
     let child2 = thread::spawn(move || {
-        let server2 = Http::new().bind(&out_addr, move || Ok(RequestProxy { requests: request_log_clone.clone() })).unwrap();
+        let server2 = Http::new().bind(&out_addr, move || Ok(ProxyOutput { requests: request_log_clone.clone() })).unwrap();
         server2.run().unwrap();
     });
 
