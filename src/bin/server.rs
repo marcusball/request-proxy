@@ -1,3 +1,4 @@
+extern crate request_proxy;
 extern crate base64;
 extern crate futures;
 extern crate hyper;
@@ -6,9 +7,10 @@ extern crate serde;
 extern crate serde_derive;
 extern crate serde_json;
 
+use request_proxy::types::ByteWrapper;
+
 use std::thread;
 use std::sync::{Arc, Mutex};
-use std::collections::HashMap;
 
 use futures::future::Future;
 use futures::Stream;
@@ -16,8 +18,6 @@ use futures::Stream;
 use hyper::header::ContentLength;
 use hyper::server::{Http, Request, Response, Service};
 use hyper::Chunk;
-
-use serde::ser::{Serialize, Serializer};
 
 const PHRASE: &'static str = "OK";
 
@@ -97,14 +97,6 @@ impl Service for ProxyOutput {
     }
 }
 
-struct ByteWrapper<T: ?Sized + AsRef<[u8]>>(T);
-
-impl<T: ?Sized + AsRef<[u8]>> Serialize for ByteWrapper<T> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
-        serialize_base64(&self.0, serializer)
-    }
-}
-
 #[derive(Serialize)]
 struct RequestOutput<'a> {
     method: &'a str,
@@ -112,14 +104,6 @@ struct RequestOutput<'a> {
     version: String,
     headers: Vec<(&'a str, ByteWrapper<Vec<u8>>)>,
     body: ByteWrapper<&'a [u8]>,
-}
-
-fn serialize_base64<'a, T, S>(field: &T, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-    T: ?Sized + AsRef<[u8]>,
-{
-    base64::encode(field).serialize(serializer)
 }
 
 fn main() {
