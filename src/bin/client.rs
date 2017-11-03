@@ -1,12 +1,19 @@
+extern crate request_proxy;
 extern crate base64;
 extern crate serde;
 extern crate serde_json;
 extern crate reqwest;
 extern crate dotenv;
+extern crate hyper; 
+
+use request_proxy::types::*;
 
 use std::{env, thread, time};
 use std::io::Read;
+use std::str::FromStr;
 use dotenv::dotenv;
+
+use hyper::{Method, Uri, HttpVersion};
 
 fn main() {
     dotenv().ok();
@@ -28,6 +35,13 @@ fn main() {
             continue;
         }
 
-        println!("{}", content);
+        let request: ProxiedRequest = serde_json::from_str(&content).unwrap();
+
+        println!("{} {} {}\n{:?}", 
+            Method::from_str(request.method).unwrap(), 
+            Uri::from_str(request.uri).unwrap(),
+            HttpVersion::from_str(&request.version).unwrap(),
+            &request.body.0
+        );
     }
 }
