@@ -70,7 +70,7 @@ impl Service for ProxyOutput {
                 acc.extend_from_slice(chunk.as_ref());
                 Ok::<_, hyper::Error>(acc)
             }).and_then(move |bytes| {
-                    let output = RequestOutput {
+                    let output = ProxiedRequest {
                         method: method.as_ref(),
                         uri: uri.as_ref(),
                         version: format!("{}", version),
@@ -98,7 +98,7 @@ impl Service for ProxyOutput {
 }
 
 #[derive(Serialize)]
-struct RequestOutput<'a> {
+struct ProxiedRequest<'a> {
     method: &'a str,
     uri: &'a str,
     version: String,
