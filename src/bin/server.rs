@@ -3,11 +3,9 @@ extern crate base64;
 extern crate futures;
 extern crate hyper;
 extern crate serde;
-#[macro_use]
-extern crate serde_derive;
 extern crate serde_json;
 
-use request_proxy::types::ByteWrapper;
+use request_proxy::types::*;
 
 use std::thread;
 use std::sync::{Arc, Mutex};
@@ -17,7 +15,6 @@ use futures::Stream;
 
 use hyper::header::ContentLength;
 use hyper::server::{Http, Request, Response, Service};
-use hyper::Chunk;
 
 const PHRASE: &'static str = "OK";
 
@@ -79,14 +76,14 @@ impl Service for ProxyOutput {
                             .map(|header| {
                                 (
                                     header.name(),
-                                    ByteWrapper(header.raw().into_iter().fold(Vec::new(), |mut acc, bytes| {
+                                    Base64Bytes(header.raw().into_iter().fold(Vec::new(), |mut acc, bytes| {
                                         acc.extend_from_slice(bytes);
                                         acc
                                     })),
                                 )
                             })
                             .collect(),
-                        body: ByteWrapper(bytes.as_ref()),
+                        body: Base64Bytes(bytes.as_ref()),
                     };
 
                     futures::future::ok(
@@ -95,15 +92,6 @@ impl Service for ProxyOutput {
                 }),
         )
     }
-}
-
-#[derive(Serialize)]
-struct ProxiedRequest<'a> {
-    method: &'a str,
-    uri: &'a str,
-    version: String,
-    headers: Vec<(&'a str, ByteWrapper<Vec<u8>>)>,
-    body: ByteWrapper<&'a [u8]>,
 }
 
 fn main() {
