@@ -1,8 +1,13 @@
 extern crate futures;
 extern crate hyper;
+extern crate serde;
+extern crate serde_json;
+#[macro_use]
+extern crate serde_derive;
 
 use std::thread;
 use std::sync::{Arc, Mutex};
+use std::collections::HashMap;
 
 use futures::future::Future;
 use futures::Stream;
@@ -62,20 +67,39 @@ impl Service for ProxyOutput {
                 acc.extend_from_slice(chunk.as_ref());
                 Ok::<_, hyper::Error>(acc)
             })
-            .map(move |value| String::from_utf8(value).unwrap())
-            .and_then(move |body| {
-                println!("{} {} {}\n{}\n{}", &method, &uri, version, headers, body);
+            .and_then(move |bytes| {
+                let output = RequestOutput {
+                    method: method.as_ref(), 
+                    uri: uri.as_ref(),
+                    version: format!("{}", version),
+                    headers: headers.iter()
+                        .map(|header| (
+                            header.name(), 
+                            header.raw().into_iter().fold(Vec::new(), |mut acc, bytes| {
+                                acc.extend_from_slice(bytes);
+                                acc
+                            })
+                        ))
+                        .collect(),
+                    body: bytes.as_ref()
+                };
 
                 futures::future::ok(
-                    Response::new()
-                        .with_header(ContentLength(PHRASE.len() as u64))
-                        .with_body(PHRASE),
+                    Response::new().with_body(serde_json::to_string(&output).unwrap()),
                 )
             })
         )
     }
 } 
 
+#[derive(Serialize)]
+struct RequestOutput<'a> {
+    method: &'a str,
+    uri: &'a str, 
+    version: String,
+    headers: Vec<(&'a str, Vec<u8>)>,
+    body: &'a [u8]
+}
 
 fn main() {
     let in_addr = "127.0.0.1:3000".parse().unwrap();
