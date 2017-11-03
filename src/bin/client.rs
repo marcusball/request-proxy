@@ -23,10 +23,13 @@ fn main() {
         let mut response = reqwest::get(&server).unwrap();
 
         let mut content = String::new();
-        response.read_to_string(&mut content);
+        response.read_to_string(&mut content).expect("Failed to read response body!");
+
+        if content.eq("NONE") {
+            thread::sleep(time::Duration::from_millis(500));
+            continue;
+        }
 
         println!("{}", content);
-
-        thread::sleep(time::Duration::from_millis(500));
     }
 }
