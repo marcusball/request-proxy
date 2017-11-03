@@ -37,11 +37,13 @@ fn main() {
 
         let request: ProxiedRequest = serde_json::from_str(&content).unwrap();
 
-        println!("{} {} {}\n{:?}", 
+        let body = String::from_utf8(request.body.0).unwrap();
+
+        println!("{} {} {}\n{}", 
             Method::from_str(request.method).unwrap(), 
             Uri::from_str(request.uri).unwrap(),
             HttpVersion::from_str(&request.version).unwrap(),
-            &request.body.0
+            &body
         );
     }
 }
