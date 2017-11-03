@@ -83,7 +83,7 @@ impl Service for ProxyOutput {
                                 )
                             })
                             .collect(),
-                        body: Base64Bytes(bytes.as_ref()),
+                        body: Base64Bytes(bytes),
                     };
 
                     futures::future::ok(
