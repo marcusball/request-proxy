@@ -14,7 +14,8 @@ use std::io::Read;
 use std::str::FromStr;
 use dotenv::dotenv;
 
-use hyper::{HttpVersion, Method, Uri};
+use hyper::{HttpVersion, Uri};
+use reqwest::{Client, Method};
 use reqwest::header::{Headers, Host, Raw};
 use url::Url;
 
@@ -31,6 +32,9 @@ fn main() {
 
     let destination_host = destination.host_str().unwrap();
 
+    // Create an outbound request client
+    let client = Client::new();
+
     loop {
         let mut response = reqwest::get(&server).unwrap();
 
@@ -46,6 +50,11 @@ fn main() {
 
         let request: ProxiedRequest = serde_json::from_str(&content).unwrap();
 
+        let method = Method::from_str(request.method).unwrap();
+
+        let mut url = destination.clone();
+        url.set_path(request.uri);
+
         let mut headers = build_headers(&request);
         let body = String::from_utf8(request.body.0).unwrap();
 
@@ -56,12 +65,30 @@ fn main() {
 
         println!(
             "{} {} {}\n{}\n{}",
-            Method::from_str(request.method).unwrap(),
+            &method,
             Uri::from_str(request.uri).unwrap(),
             HttpVersion::from_str(&request.version).unwrap(),
             headers,
             &body
         );
+
+        let response = client.request(method, url)
+            .headers(headers)
+            .body(body)
+            .send();
+
+        match response {
+            Ok(mut r) => {
+                let mut body = String::new();
+                r.read_to_string(&mut body).ok();
+
+                println!("{}\n{}\n{}", r.status(), r.headers(), body);
+            },
+            Err(e) => {
+                println!("{:?}", e);
+            }
+        }
+        println!("\n-------------------------------------------\n");
     }
 }
 
