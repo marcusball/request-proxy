@@ -1,7 +1,7 @@
-extern crate request_proxy;
 extern crate base64;
 extern crate futures;
 extern crate hyper;
+extern crate request_proxy;
 extern crate serde;
 extern crate serde_json;
 
@@ -76,10 +76,13 @@ impl Service for ProxyOutput {
                             .map(|header| {
                                 (
                                     header.name(),
-                                    Base64Bytes(header.raw().into_iter().fold(Vec::new(), |mut acc, bytes| {
-                                        acc.extend_from_slice(bytes);
-                                        acc
-                                    })),
+                                    Base64Bytes(header.raw().into_iter().fold(
+                                        Vec::new(),
+                                        |mut acc, bytes| {
+                                            acc.extend_from_slice(bytes);
+                                            acc
+                                        },
+                                    )),
                                 )
                             })
                             .collect(),
