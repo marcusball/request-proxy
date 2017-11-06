@@ -14,6 +14,7 @@ use std::str::FromStr;
 use dotenv::dotenv;
 
 use hyper::{Method, Uri, HttpVersion};
+use reqwest::header::{Headers, Raw};
 
 fn main() {
     dotenv().ok();
@@ -37,13 +38,24 @@ fn main() {
 
         let request: ProxiedRequest = serde_json::from_str(&content).unwrap();
 
+        let headers = build_headers(&request);
         let body = String::from_utf8(request.body.0).unwrap();
 
-        println!("{} {} {}\n{}", 
+        println!("{} {} {}\n{}\n{}", 
             Method::from_str(request.method).unwrap(), 
             Uri::from_str(request.uri).unwrap(),
             HttpVersion::from_str(&request.version).unwrap(),
+            headers,
             &body
         );
     }
+}
+
+/// Builds a Headers object from the raw header values in the ProxiedRequest
+fn build_headers(request: &ProxiedRequest) -> Headers {
+    request.headers.iter().fold(Headers::new(), |mut headers, &(k, ref v)| {
+        let value_bytes: &[u8] = v.0.as_ref();
+        headers.append_raw(String::from(k), Raw::from(value_bytes));
+        headers
+    })
 }
