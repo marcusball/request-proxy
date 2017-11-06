@@ -25,9 +25,11 @@ fn main() {
     let server = env::var("REQUEST_PROXY_SERVER").expect("Missing REQUEST_PROXY_SERVER variable!");
 
     // Hostname or IP of the server to which to send proxied requests
-    let host = Url::from_str(&env::var("REQUEST_PROXY_HOST")
+    let destination = Url::from_str(&env::var("REQUEST_PROXY_HOST")
         .expect("Missing REQUEST_PROXY_HOST destination variable!"))
         .expect("Failed to parse destination url!");
+
+    let destination_host = destination.host_str().unwrap();
 
     loop {
         let mut response = reqwest::get(&server).unwrap();
@@ -44,8 +46,13 @@ fn main() {
 
         let request: ProxiedRequest = serde_json::from_str(&content).unwrap();
 
-        let headers = build_headers(&request);
+        let mut headers = build_headers(&request);
         let body = String::from_utf8(request.body.0).unwrap();
+
+        headers.set(Host::new(
+            String::from(destination_host),
+            destination.port(),
+        ));
 
         println!(
             "{} {} {}\n{}\n{}",
