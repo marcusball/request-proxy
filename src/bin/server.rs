@@ -11,6 +11,7 @@ use request_proxy::types::*;
 use std::env;
 use std::thread;
 use std::sync::{Arc, Mutex};
+use std::collections::VecDeque;
 
 use futures::future::Future;
 use futures::Stream;
@@ -23,7 +24,7 @@ use dotenv::dotenv;
 const PHRASE: &'static str = "OK";
 
 struct RequestProxy {
-    requests: Arc<Mutex<Vec<Request<::hyper::Body>>>>,
+    requests: Arc<Mutex<VecDeque<Request<::hyper::Body>>>>,
 }
 
 impl Service for RequestProxy {
@@ -36,7 +37,7 @@ impl Service for RequestProxy {
     fn call(&self, req: Request) -> Self::Future {
         println!("{}", &req.uri());
 
-        self.requests.lock().unwrap().push(req);
+        self.requests.lock().unwrap().push_back(req);
 
         Box::new(futures::future::ok(
             Response::new()
@@ -47,7 +48,7 @@ impl Service for RequestProxy {
 }
 
 struct ProxyOutput {
-    requests: Arc<Mutex<Vec<Request<::hyper::Body>>>>,
+    requests: Arc<Mutex<VecDeque<Request<::hyper::Body>>>>,
 }
 
 impl Service for ProxyOutput {
@@ -58,7 +59,7 @@ impl Service for ProxyOutput {
     type Future = Box<Future<Item = Self::Response, Error = Self::Error>>;
 
     fn call(&self, _: Request) -> Self::Future {
-        let req = self.requests.lock().unwrap().pop();
+        let req = self.requests.lock().unwrap().pop_front();
 
         if req.is_none() {
             return Box::new(futures::future::ok(Response::new().with_body("NONE")));
@@ -113,7 +114,7 @@ fn main() {
         .parse()
         .unwrap();
 
-    let request_log = Arc::new(Mutex::new(Vec::new()));
+    let request_log = Arc::new(Mutex::new(VecDeque::new()));
     let request_log_clone = request_log.clone();
 
     let child = thread::spawn(move || {
