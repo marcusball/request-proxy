@@ -4,9 +4,11 @@ extern crate hyper;
 extern crate request_proxy;
 extern crate serde;
 extern crate serde_json;
+extern crate dotenv;
 
 use request_proxy::types::*;
 
+use std::env;
 use std::thread;
 use std::sync::{Arc, Mutex};
 
@@ -15,6 +17,8 @@ use futures::Stream;
 
 use hyper::header::ContentLength;
 use hyper::server::{Http, Request, Response, Service};
+
+use dotenv::dotenv;
 
 const PHRASE: &'static str = "OK";
 
@@ -98,8 +102,10 @@ impl Service for ProxyOutput {
 }
 
 fn main() {
-    let in_addr = "127.0.0.1:3000".parse().unwrap();
-    let out_addr = "127.0.0.1:3001".parse().unwrap();
+    dotenv().ok();
+
+    let in_addr = env::var("PROXY_LISTEN_IN").unwrap_or("127.0.0.1:3000".into()).parse().unwrap();
+    let out_addr = env::var("PROXY_LISTEN_OUT").unwrap_or("127.0.0.1:3001".into()).parse().unwrap();
 
     let request_log = Arc::new(Mutex::new(Vec::new()));
     let request_log_clone = request_log.clone();
