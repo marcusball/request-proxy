@@ -1,10 +1,10 @@
 extern crate base64;
+extern crate dotenv;
 extern crate futures;
 extern crate hyper;
 extern crate request_proxy;
 extern crate serde;
 extern crate serde_json;
-extern crate dotenv;
 
 use request_proxy::types::*;
 
@@ -104,8 +104,14 @@ impl Service for ProxyOutput {
 fn main() {
     dotenv().ok();
 
-    let in_addr = env::var("PROXY_LISTEN_IN").unwrap_or("127.0.0.1:3000".into()).parse().unwrap();
-    let out_addr = env::var("PROXY_LISTEN_OUT").unwrap_or("127.0.0.1:3001".into()).parse().unwrap();
+    let in_addr = env::var("PROXY_LISTEN_IN")
+        .unwrap_or("127.0.0.1:3000".into())
+        .parse()
+        .unwrap();
+    let out_addr = env::var("PROXY_LISTEN_OUT")
+        .unwrap_or("127.0.0.1:3001".into())
+        .parse()
+        .unwrap();
 
     let request_log = Arc::new(Mutex::new(Vec::new()));
     let request_log_clone = request_log.clone();

@@ -72,7 +72,8 @@ fn main() {
             &body
         );
 
-        let response = client.request(method, url)
+        let response = client
+            .request(method, url)
             .headers(headers)
             .body(body)
             .send();
@@ -83,7 +84,7 @@ fn main() {
                 r.read_to_string(&mut body).ok();
 
                 println!("{}\n{}\n{}", r.status(), r.headers(), body);
-            },
+            }
             Err(e) => {
                 println!("{:?}", e);
             }
