@@ -12,13 +12,15 @@ use request_proxy::types::*;
 use std::env;
 use std::thread;
 use std::sync::{Arc, Mutex};
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 
 use futures::Stream;
 use futures::{Async, Future, Poll};
 
 use hyper::header::ContentLength;
 use hyper::server::{Http, Request, Response, Service};
+use hyper::client::Response as ClientResponse;
+use hyper::Method;
 
 use uuid::Uuid;
 
@@ -27,8 +29,11 @@ use dotenv::dotenv;
 const PHRASE: &'static str = "OK";
 
 
-struct OkFuture;
-impl Future for OkFuture {
+struct ProxiedResponse {
+    responses: Arc<Mutex<HashMap<Uuid, ClientResponse>>>,
+}
+
+impl Future for ProxiedResponse {
     type Item = <RequestProxy as Service>::Response;
     type Error = <RequestProxy as Service>::Error;
 
@@ -44,6 +49,7 @@ impl Future for OkFuture {
 
 struct RequestProxy {
     requests: Arc<Mutex<VecDeque<Request<::hyper::Body>>>>,
+    responses: Arc<Mutex<HashMap<Uuid, ClientResponse>>>,
 }
 
 impl Service for RequestProxy {
@@ -58,22 +64,19 @@ impl Service for RequestProxy {
 
         self.requests.lock().unwrap().push_back(req);
 
-        Box::new(OkFuture)
+        Box::new(ProxiedResponse {
+            responses: self.responses.clone(),
+        })
     }
 }
 
 struct ProxyOutput {
     requests: Arc<Mutex<VecDeque<Request<::hyper::Body>>>>,
+    responses: Arc<Mutex<HashMap<Uuid, ClientResponse>>>,
 }
 
-impl Service for ProxyOutput {
-    type Request = Request;
-    type Response = Response;
-    type Error = hyper::Error;
-
-    type Future = Box<Future<Item = Self::Response, Error = Self::Error>>;
-
-    fn call(&self, _: Request) -> Self::Future {
+impl ProxyOutput {
+    fn pop_request(&self) -> <Self as Service>::Future {
         let req = self.requests.lock().unwrap().pop_front();
 
         if req.is_none() {
@@ -118,6 +121,22 @@ impl Service for ProxyOutput {
     }
 }
 
+impl Service for ProxyOutput {
+    type Request = Request;
+    type Response = Response;
+    type Error = hyper::Error;
+
+    type Future = Box<Future<Item = Self::Response, Error = Self::Error>>;
+
+    fn call(&self, request: Request) -> Self::Future {
+        /*match request.method {
+            Method::POST => unimplemented!(),
+        }*/
+
+        self.pop_request()
+    }
+}
+
 fn main() {
     dotenv().ok();
 
@@ -133,11 +152,15 @@ fn main() {
     let request_log = Arc::new(Mutex::new(VecDeque::new()));
     let request_log_clone = request_log.clone();
 
+    let response_log = Arc::new(Mutex::new(HashMap::new()));
+    let response_log_clone = response_log.clone();
+
     let child = thread::spawn(move || {
         let server = Http::new()
             .bind(&in_addr, move || {
                 Ok(RequestProxy {
                     requests: request_log.clone(),
+                    responses: response_log.clone(),
                 })
             })
             .unwrap();
@@ -149,6 +172,7 @@ fn main() {
             .bind(&out_addr, move || {
                 Ok(ProxyOutput {
                     requests: request_log_clone.clone(),
+                    responses: response_log_clone.clone(),
                 })
             })
             .unwrap();
