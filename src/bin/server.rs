@@ -20,7 +20,7 @@ use futures::{Async, Future, Poll};
 use hyper::header::ContentLength;
 use hyper::server::{Http, Request, Response, Service};
 use hyper::client::Response as ClientResponse;
-use hyper::Method;
+use hyper::{Method, StatusCode};
 
 use uuid::Uuid;
 
@@ -76,6 +76,7 @@ struct ProxyOutput {
 }
 
 impl ProxyOutput {
+    /// Pop a queued request, if any, and return the serialized request
     fn pop_request(&self) -> <Self as Service>::Future {
         let req = self.requests.lock().unwrap().pop_front();
 
@@ -129,11 +130,14 @@ impl Service for ProxyOutput {
     type Future = Box<Future<Item = Self::Response, Error = Self::Error>>;
 
     fn call(&self, request: Request) -> Self::Future {
-        /*match request.method {
-            Method::POST => unimplemented!(),
-        }*/
-
-        self.pop_request()
+        match request.method() {
+            &Method::Get => self.pop_request(),
+            _ => Box::new(futures::future::ok(
+                Response::new()
+                    .with_status(StatusCode::MethodNotAllowed)
+                    .with_body("😬 You suck at computers"),
+            )),
+        }
     }
 }
 
