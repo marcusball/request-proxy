@@ -29,7 +29,9 @@ fn main() {
     // Hostname or IP of the server to which to send proxied requests
     let destination = Url::from_str(&env::var("REQUEST_PROXY_HOST")
         .expect("Missing REQUEST_PROXY_HOST destination variable!"))
-        .expect("Failed to parse destination url!");
+        .expect(
+        "Failed to parse destination url!",
+    );
 
     let destination_host = destination.host_str().unwrap();
 
@@ -93,6 +95,35 @@ fn main() {
                 r.read_to_string(&mut body).ok();
 
                 println!("{}\n{}\n{}", r.status(), r.headers(), body);
+
+                // Build the response to send back to the server
+                let proxied_response = ClientResponse {
+                    request_id: request.id,
+                    status: r.status().as_u16(),
+                    headers: r.headers()
+                        .iter()
+                        .map(|header| {
+                            (
+                                header.name().to_owned(),
+                                Base64Bytes(header.raw().into_iter().fold(
+                                    Vec::new(),
+                                    |mut acc, bytes| {
+                                        acc.extend_from_slice(bytes);
+                                        acc
+                                    },
+                                )),
+                            )
+                        })
+                        .collect(),
+                    body: Base64Bytes(body.into_bytes()),
+                };
+
+                match client.post(&server).json(&proxied_response).send() {
+                    Ok(_) => {},
+                    Err(e) => {
+                        println!("ERROR: Failed to send response to server! {:?}", e);
+                    }
+                };
             }
             Err(e) => {
                 println!("{:?}", e);
