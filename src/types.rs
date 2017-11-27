@@ -3,8 +3,18 @@ use serde::ser::{Serialize, Serializer};
 use serde::de::{self, Deserialize, Deserializer, Visitor};
 use uuid::Uuid;
 
+use hyper::StatusCode;
+use hyper::header::{Headers, Raw};
+
 /// Wraps a type that may be expressed as a byte slice,
 pub struct Base64Bytes<T: ?Sized + AsRef<[u8]>>(pub T);
+
+impl Base64Bytes<Vec<u8>> {
+    // Convert the bytes to a str using UTF-8 encoding
+    pub fn as_str(&self) -> Result<&str, ::std::str::Utf8Error> {
+        ::std::str::from_utf8(&self.0)
+    }
+}
 
 impl<T: ?Sized + AsRef<[u8]>> Serialize for Base64Bytes<T> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -78,8 +88,23 @@ pub struct ProxiedRequest<'a> {
 pub struct ClientResponse {
     /// ID of the ProxiedRequest to which this is the response
     pub request_id: Uuid,
-    pub version: String,
     pub status: u16,
     pub headers: Vec<(String, Base64Bytes<Vec<u8>>)>,
     pub body: Base64Bytes<Vec<u8>>,
+}
+
+impl ClientResponse {
+    pub fn headers(&self) -> Headers {
+        self.headers
+            .iter()
+            .fold(Headers::new(), |mut headers, &(ref k, ref v)| {
+                let value_bytes: &[u8] = v.0.as_ref();
+                headers.append_raw(k.to_owned(), Raw::from(value_bytes));
+                headers
+            })
+    }
+
+    pub fn status_code(&self) -> StatusCode {
+        StatusCode::try_from(self.status).unwrap_or(StatusCode::BadGateway)
+    }
 }

@@ -29,7 +29,7 @@ const PHRASE: &'static str = "OK";
 
 
 struct ProxiedResponse {
-    responses: Arc<Mutex<HashMap<Uuid, ClientResponse>>>,
+    responses: Arc<Mutex<HashMap<Uuid, Response<::hyper::Body>>>>,
 }
 
 impl Future for ProxiedResponse {
@@ -48,7 +48,7 @@ impl Future for ProxiedResponse {
 
 struct RequestProxy {
     requests: Arc<Mutex<VecDeque<Request<::hyper::Body>>>>,
-    responses: Arc<Mutex<HashMap<Uuid, ClientResponse>>>,
+    responses: Arc<Mutex<HashMap<Uuid, Response<::hyper::Body>>>>,
 }
 
 impl Service for RequestProxy {
@@ -71,7 +71,7 @@ impl Service for RequestProxy {
 
 struct ProxyOutput {
     requests: Arc<Mutex<VecDeque<Request<::hyper::Body>>>>,
-    responses: Arc<Mutex<HashMap<Uuid, ClientResponse>>>,
+    responses: Arc<Mutex<HashMap<Uuid, Response<::hyper::Body>>>>,
 }
 
 impl ProxyOutput {
@@ -122,25 +122,42 @@ impl ProxyOutput {
 
     fn push_response(&self, request: Request) -> <Self as Service>::Future {
         Box::new(
-            request.body().fold(Vec::new(), |mut acc, chunk| {
-                acc.extend_from_slice(chunk.as_ref());
-                Ok::<_, hyper::Error>(acc)
-            }).map(move |bytes| {
-                String::from_utf8(bytes).unwrap()
-            }).and_then(move |body| {
-                let response: ClientResponse = match serde_json::from_str(&body) {
-                    Ok(r) => r,
-                    Err(_) => {
-                        return futures::future::ok(
-                            Response::new()
-                                .with_status(StatusCode::BadRequest)
-                                .with_body("🤢 Your request was bad and you should feel bad")
-                        );
-                    },
-                };
+            request
+                .body()
+                .fold(Vec::new(), |mut acc, chunk| {
+                    acc.extend_from_slice(chunk.as_ref());
+                    Ok::<_, hyper::Error>(acc)
+                })
+                .map(move |bytes| String::from_utf8(bytes).unwrap())
+                .and_then(|body| {
+                    let client_response = match serde_json::from_str::<ClientResponse>(&body) {
+                        Ok(r) => r,
+                        Err(_) => {
+                            return futures::future::ok(
+                                Response::new()
+                                    .with_status(StatusCode::BadRequest)
+                                    .with_body("🤢 Your request was bad and you should feel bad"),
+                            );
+                        }
+                    };
 
-                futures::future::ok(Response::new().with_body(response.request_id.hyphenated().to_string()))
-            })
+                    let response = Response::<hyper::Body>::new()
+                        .with_status(client_response.status_code())
+                        .with_headers(client_response.headers())
+                        .with_body(client_response.body.as_str().unwrap_or("").to_owned());
+
+                    // TODO Check requests to verify the request ID is actually present
+
+                    /*self.responses.lock().and_then(|mut responses| {
+                        let _ = responses.insert(client_response.request_id, response);
+                        Ok(())
+                    });*/
+
+                    futures::future::ok(
+                        Response::new()
+                            .with_body(client_response.request_id.hyphenated().to_string()),
+                    )
+                }),
         )
     }
 }
