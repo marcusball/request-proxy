@@ -36,7 +36,15 @@ fn main() {
     let client = Client::new();
 
     loop {
-        let mut response = reqwest::get(&server).unwrap();
+        let response = reqwest::get(&server);
+
+        if let Err(e) = response {
+            println!("ERROR: {:?}\n", e);
+            thread::sleep(time::Duration::from_millis(500));
+            continue;
+        }
+
+        let mut response = response.unwrap();
 
         let mut content = String::new();
         response
