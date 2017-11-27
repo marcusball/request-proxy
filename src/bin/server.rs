@@ -17,15 +17,12 @@ use std::collections::{HashMap, VecDeque};
 use futures::Stream;
 use futures::{Async, Future, Poll};
 
-use hyper::header::ContentLength;
 use hyper::server::{Http, Request, Response, Service};
 use hyper::{Method, StatusCode};
 
 use uuid::Uuid;
 
 use dotenv::dotenv;
-
-const PHRASE: &'static str = "OK";
 
 
 struct ProxiedResponse {
@@ -41,11 +38,7 @@ impl Future for ProxiedResponse {
         self.responses
             .try_lock()
             .and_then(|mut res| match res.remove(&self.request_id) {
-                Some(response) => Ok(Async::Ready(
-                    Response::new()
-                        .with_header(ContentLength(PHRASE.len() as u64))
-                        .with_body(PHRASE),
-                )),
+                Some(response) => Ok(Async::Ready(response)),
                 None => Ok(Async::NotReady),
             })
             .or_else(|_| Ok(Async::NotReady))
