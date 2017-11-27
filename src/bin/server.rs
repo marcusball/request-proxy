@@ -188,6 +188,7 @@ impl ProxyOutput {
                             return futures::future::ok(
                                 Response::new()
                                     .with_status(StatusCode::BadRequest)
+                                    .with_header(ContentType::plaintext())
                                     .with_body("🤢 Your request was bad and you should feel bad"),
                             );
                         }
@@ -208,6 +209,7 @@ impl ProxyOutput {
                             return futures::future::ok(
                                 Response::new()
                                     .with_status(StatusCode::InternalServerError)
+                                    .with_header(ContentType::plaintext())
                                     .with_body("🤒 Server machine broke"),
                             );
                         }
@@ -243,6 +245,7 @@ impl Service for ProxyOutput {
             _ => Box::new(futures::future::ok(
                 Response::new()
                     .with_status(StatusCode::MethodNotAllowed)
+                    .with_header(ContentType::plaintext())
                     .with_body("😬 You suck at computers"),
             )),
         }
