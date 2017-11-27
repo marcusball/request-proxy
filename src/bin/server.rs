@@ -5,6 +5,7 @@ extern crate hyper;
 extern crate request_proxy;
 extern crate serde;
 extern crate serde_json;
+extern crate uuid;
 
 use request_proxy::types::*;
 
@@ -13,11 +14,13 @@ use std::thread;
 use std::sync::{Arc, Mutex};
 use std::collections::VecDeque;
 
-use futures::future::Future;
 use futures::Stream;
+use futures::{Async, Future, Poll};
 
 use hyper::header::ContentLength;
 use hyper::server::{Http, Request, Response, Service};
+
+use uuid::Uuid;
 
 use dotenv::dotenv;
 
@@ -73,6 +76,7 @@ impl Service for ProxyOutput {
                 Ok::<_, hyper::Error>(acc)
             }).and_then(move |bytes| {
                     let output = ProxiedRequest {
+                        id: Uuid::new_v4(),
                         method: method.as_ref(),
                         uri: uri.as_ref(),
                         version: format!("{}", version),

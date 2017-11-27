@@ -1,6 +1,7 @@
 use base64;
 use serde::ser::{Serialize, Serializer};
 use serde::de::{self, Deserialize, Deserializer, Visitor};
+use uuid::Uuid;
 
 /// Wraps a type that may be expressed as a byte slice,
 pub struct Base64Bytes<T: ?Sized + AsRef<[u8]>>(pub T);
@@ -70,4 +71,5 @@ pub struct ProxiedRequest<'a> {
     pub version: String,
     pub headers: Vec<(&'a str, Base64Bytes<Vec<u8>>)>,
     pub body: Base64Bytes<Vec<u8>>,
+    pub id: Uuid,
 }
