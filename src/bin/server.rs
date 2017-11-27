@@ -38,10 +38,20 @@ impl Future for ProxiedResponse {
         self.responses
             .try_lock()
             .and_then(|mut res| match res.remove(&self.request_id) {
-                Some(response) => Ok(Async::Ready(response)),
-                None => Ok(Async::NotReady),
+                Some(response) => {
+                    println!("Response found!");
+                    Ok(Async::Ready(response))
+                },
+                None => {
+                    futures::task::current().notify();
+                    Ok(Async::NotReady)
+                },
             })
-            .or_else(|_| Ok(Async::NotReady))
+            .or_else(|_| {
+                println!("Blocked :(");
+                futures::task::current().notify();
+                Ok(Async::NotReady)
+            })
     }
 }
 
@@ -83,7 +93,7 @@ struct ProxyOutput {
 impl ProxyOutput {
     /// Pop a queued request, if any, and return the serialized request
     fn pop_request(&self) -> <Self as Service>::Future {
-        let req = self.requests.lock().unwrap().pop_front();
+        let req = { self.requests.lock().unwrap().pop_front() };
 
         if req.is_none() {
             return Box::new(futures::future::ok(Response::new().with_body("NONE")));
@@ -128,6 +138,7 @@ impl ProxyOutput {
     }
 
     fn push_response(&self, request: Request) -> <Self as Service>::Future {
+        println!("Received client POST response");
         let responses = self.responses.clone();
 
         Box::new(
@@ -168,8 +179,14 @@ impl ProxyOutput {
                                     .with_body("🤒 Server machine broke"),
                             );
                         }
-                        Ok(_) => { /* 👍 */ }
+                        Ok(_) => { 
+                            /* 👍 */
+                            println!("Response to {} was successfully saved", client_response.request_id.hyphenated().to_string());
+                        }
                     };
+
+                    // Update so that the ProxiedResponse future can continue 
+                    futures::task::current().notify();
 
                     futures::future::ok(
                         Response::new()
