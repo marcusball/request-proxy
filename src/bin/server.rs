@@ -6,9 +6,11 @@ extern crate request_proxy;
 extern crate serde;
 extern crate serde_json;
 extern crate uuid;
+extern crate tokio_timer;
 
 use request_proxy::types::*;
 
+use std::time::*;
 use std::env;
 use std::thread;
 use std::sync::{Arc, Mutex};
@@ -16,13 +18,31 @@ use std::collections::{HashMap, VecDeque};
 
 use futures::Stream;
 use futures::{Async, Future, Poll};
+use tokio_timer::*;
 
 use hyper::server::{Http, Request, Response, Service};
+use hyper::header::ContentType;
 use hyper::{Method, StatusCode};
 
 use uuid::Uuid;
 
 use dotenv::dotenv;
+
+pub mod error {
+    use super::ProxiedResponse;
+    pub use tokio_timer::TimeoutError;
+    use ::std::convert::From;
+
+    pub enum Error {
+        TokioTimeoutError()
+    }
+
+    impl From<TimeoutError<ProxiedResponse>> for Error {
+        fn from(_: TimeoutError<ProxiedResponse>) -> Self {
+            Error::TokioTimeoutError()
+        }
+    }
+}
 
 
 struct ProxiedResponse {
@@ -32,7 +52,7 @@ struct ProxiedResponse {
 
 impl Future for ProxiedResponse {
     type Item = <RequestProxy as Service>::Response;
-    type Error = <RequestProxy as Service>::Error;
+    type Error = error::Error;
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
         self.responses
@@ -78,10 +98,22 @@ impl Service for RequestProxy {
             .unwrap()
             .push_back((request_id.clone(), req));
 
-        Box::new(ProxiedResponse {
-            request_id,
-            responses: self.responses.clone(),
-        })
+        Box::new(
+            Timer::default()
+                .timeout(ProxiedResponse {
+                    request_id,
+                    responses: self.responses.clone(),
+                }, Duration::from_secs(5))
+                .map_err(|_| hyper::error::Error::Timeout)
+                .or_else(|_| {
+                    futures::future::ok(
+                        Response::new()
+                            .with_status(StatusCode::GatewayTimeout)
+                            .with_header(ContentType::plaintext())
+                            .with_body("😶 Timeout"),
+                    )
+                })
+        )
     }
 }
 
