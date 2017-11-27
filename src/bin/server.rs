@@ -103,7 +103,7 @@ impl Service for RequestProxy {
                 .timeout(ProxiedResponse {
                     request_id,
                     responses: self.responses.clone(),
-                }, Duration::from_secs(5))
+                }, Duration::from_secs(15))
                 .map_err(|_| hyper::error::Error::Timeout)
                 .or_else(|_| {
                     futures::future::ok(
