@@ -29,6 +29,7 @@ const PHRASE: &'static str = "OK";
 
 
 struct ProxiedResponse {
+    request_id: Uuid,
     responses: Arc<Mutex<HashMap<Uuid, Response<::hyper::Body>>>>,
 }
 
@@ -37,17 +38,23 @@ impl Future for ProxiedResponse {
     type Error = <RequestProxy as Service>::Error;
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
-        Ok(Async::Ready(
-            Response::new()
-                .with_header(ContentLength(PHRASE.len() as u64))
-                .with_body(PHRASE),
-        ))
+        self.responses
+            .try_lock()
+            .and_then(|mut res| match res.remove(&self.request_id) {
+                Some(response) => Ok(Async::Ready(
+                    Response::new()
+                        .with_header(ContentLength(PHRASE.len() as u64))
+                        .with_body(PHRASE),
+                )),
+                None => Ok(Async::NotReady),
+            })
+            .or_else(|_| Ok(Async::NotReady))
     }
 }
 
 
 struct RequestProxy {
-    requests: Arc<Mutex<VecDeque<Request<::hyper::Body>>>>,
+    requests: Arc<Mutex<VecDeque<(Uuid, Request<::hyper::Body>)>>>,
     responses: Arc<Mutex<HashMap<Uuid, Response<::hyper::Body>>>>,
 }
 
@@ -61,16 +68,22 @@ impl Service for RequestProxy {
     fn call(&self, req: Request) -> Self::Future {
         println!("{}", &req.uri());
 
-        self.requests.lock().unwrap().push_back(req);
+        let request_id = Uuid::new_v4();
+
+        self.requests
+            .lock()
+            .unwrap()
+            .push_back((request_id.clone(), req));
 
         Box::new(ProxiedResponse {
+            request_id,
             responses: self.responses.clone(),
         })
     }
 }
 
 struct ProxyOutput {
-    requests: Arc<Mutex<VecDeque<Request<::hyper::Body>>>>,
+    requests: Arc<Mutex<VecDeque<(Uuid, Request<::hyper::Body>)>>>,
     responses: Arc<Mutex<HashMap<Uuid, Response<::hyper::Body>>>>,
 }
 
@@ -83,7 +96,8 @@ impl ProxyOutput {
             return Box::new(futures::future::ok(Response::new().with_body("NONE")));
         }
 
-        let (method, uri, version, headers, body) = req.unwrap().deconstruct();
+        let (req_id, req) = req.unwrap();
+        let (method, uri, version, headers, body) = req.deconstruct();
 
         Box::new(
             body.fold(Vec::new(), |mut acc, chunk| {
@@ -91,7 +105,7 @@ impl ProxyOutput {
                 Ok::<_, hyper::Error>(acc)
             }).and_then(move |bytes| {
                     let output = ProxiedRequest {
-                        id: Uuid::new_v4(),
+                        id: req_id,
                         method: method.as_ref(),
                         uri: uri.as_ref(),
                         version: format!("{}", version),
@@ -149,7 +163,7 @@ impl ProxyOutput {
                         .with_body(client_response.body.as_str().unwrap_or("").to_owned());
 
                     // TODO Check requests to verify the request ID is actually present
-                    
+
                     match responses.lock().and_then(|mut responses| {
                         let _ = responses.insert(client_response.request_id, response);
                         Ok(())
@@ -161,7 +175,8 @@ impl ProxyOutput {
                                     .with_body("🤒 Server machine broke"),
                             );
                         }
-                    }
+                        Ok(_) => { /* 👍 */ }
+                    };
 
                     futures::future::ok(
                         Response::new()
