@@ -35,10 +35,9 @@ fn main() {
 
     let destination_host = destination.host_str().unwrap();
 
-    // Create an outbound request client
-    let client = Client::new();
-
     loop {
+        let client = Client::new();
+
         let response = reqwest::get(&server);
 
         if let Err(e) = response {
@@ -119,7 +118,11 @@ fn main() {
                 };
 
                 match client.post(&server).json(&proxied_response).send() {
-                    Ok(_) => {},
+                    Ok(_) => {
+                        println!(
+                            "\n=====================\nSuccessfully sent response to the server"
+                        );
+                    }
                     Err(e) => {
                         println!("ERROR: Failed to send response to server! {:?}", e);
                     }
@@ -127,6 +130,26 @@ fn main() {
             }
             Err(e) => {
                 println!("{:?}", e);
+
+                // Build the response to send back to the server
+                let proxied_response = ClientResponse {
+                    request_id: request.id,
+                    status: 500,
+                    headers: Vec::new(),
+                    body: Base64Bytes(Vec::new()),
+                };
+
+                match client.post(&server).json(&proxied_response).send() {
+                    Ok(_) => {
+                        println!("\n=====================\nSuccessfully notified server of error");
+                    }
+                    Err(e) => {
+                        println!(
+                            "ERROR: Failed to send error notification to server! {:?}",
+                            e
+                        );
+                    }
+                };
             }
         }
         println!("\n-------------------------------------------\n");
