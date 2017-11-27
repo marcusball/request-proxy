@@ -73,3 +73,13 @@ pub struct ProxiedRequest<'a> {
     pub body: Base64Bytes<Vec<u8>>,
     pub id: Uuid,
 }
+
+#[derive(Serialize, Deserialize)]
+pub struct ClientResponse {
+    /// ID of the ProxiedRequest to which this is the response
+    pub request_id: Uuid,
+    pub version: String,
+    pub status: u16,
+    pub headers: Vec<(String, Base64Bytes<Vec<u8>>)>,
+    pub body: Base64Bytes<Vec<u8>>,
+}

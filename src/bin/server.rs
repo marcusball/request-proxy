@@ -19,7 +19,6 @@ use futures::{Async, Future, Poll};
 
 use hyper::header::ContentLength;
 use hyper::server::{Http, Request, Response, Service};
-use hyper::client::Response as ClientResponse;
 use hyper::{Method, StatusCode};
 
 use uuid::Uuid;
@@ -120,6 +119,30 @@ impl ProxyOutput {
                 }),
         )
     }
+
+    fn push_response(&self, request: Request) -> <Self as Service>::Future {
+        Box::new(
+            request.body().fold(Vec::new(), |mut acc, chunk| {
+                acc.extend_from_slice(chunk.as_ref());
+                Ok::<_, hyper::Error>(acc)
+            }).map(move |bytes| {
+                String::from_utf8(bytes).unwrap()
+            }).and_then(move |body| {
+                let response: ClientResponse = match serde_json::from_str(&body) {
+                    Ok(r) => r,
+                    Err(_) => {
+                        return futures::future::ok(
+                            Response::new()
+                                .with_status(StatusCode::BadRequest)
+                                .with_body("🤢 Your request was bad and you should feel bad")
+                        );
+                    },
+                };
+
+                futures::future::ok(Response::new().with_body(response.request_id.hyphenated().to_string()))
+            })
+        )
+    }
 }
 
 impl Service for ProxyOutput {
@@ -132,6 +155,7 @@ impl Service for ProxyOutput {
     fn call(&self, request: Request) -> Self::Future {
         match request.method() {
             &Method::Get => self.pop_request(),
+            &Method::Post => self.push_response(request),
             _ => Box::new(futures::future::ok(
                 Response::new()
                     .with_status(StatusCode::MethodNotAllowed)
