@@ -121,6 +121,8 @@ impl ProxyOutput {
     }
 
     fn push_response(&self, request: Request) -> <Self as Service>::Future {
+        let responses = self.responses.clone();
+
         Box::new(
             request
                 .body()
@@ -129,7 +131,7 @@ impl ProxyOutput {
                     Ok::<_, hyper::Error>(acc)
                 })
                 .map(move |bytes| String::from_utf8(bytes).unwrap())
-                .and_then(|body| {
+                .and_then(move |body| {
                     let client_response = match serde_json::from_str::<ClientResponse>(&body) {
                         Ok(r) => r,
                         Err(_) => {
@@ -147,11 +149,19 @@ impl ProxyOutput {
                         .with_body(client_response.body.as_str().unwrap_or("").to_owned());
 
                     // TODO Check requests to verify the request ID is actually present
-
-                    /*self.responses.lock().and_then(|mut responses| {
+                    
+                    match responses.lock().and_then(|mut responses| {
                         let _ = responses.insert(client_response.request_id, response);
                         Ok(())
-                    });*/
+                    }) {
+                        Err(_) => {
+                            return futures::future::ok(
+                                Response::new()
+                                    .with_status(StatusCode::InternalServerError)
+                                    .with_body("🤒 Server machine broke"),
+                            );
+                        }
+                    }
 
                     futures::future::ok(
                         Response::new()
