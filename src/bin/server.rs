@@ -26,6 +26,22 @@ use dotenv::dotenv;
 
 const PHRASE: &'static str = "OK";
 
+
+struct OkFuture;
+impl Future for OkFuture {
+    type Item = <RequestProxy as Service>::Response;
+    type Error = <RequestProxy as Service>::Error;
+
+    fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
+        Ok(Async::Ready(
+            Response::new()
+                .with_header(ContentLength(PHRASE.len() as u64))
+                .with_body(PHRASE),
+        ))
+    }
+}
+
+
 struct RequestProxy {
     requests: Arc<Mutex<VecDeque<Request<::hyper::Body>>>>,
 }
@@ -42,11 +58,7 @@ impl Service for RequestProxy {
 
         self.requests.lock().unwrap().push_back(req);
 
-        Box::new(futures::future::ok(
-            Response::new()
-                .with_header(ContentLength(PHRASE.len() as u64))
-                .with_body(PHRASE),
-        ))
+        Box::new(OkFuture)
     }
 }
 
