@@ -16,7 +16,7 @@ use std::str::FromStr;
 use dotenv::dotenv;
 
 use hyper::{HttpVersion, Uri};
-use reqwest::{Client, Method};
+use reqwest::{Client, Method, RedirectPolicy};
 use reqwest::header::{Headers, Host, Raw};
 use url::Url;
 
@@ -29,14 +29,15 @@ fn main() {
     // Hostname or IP of the server to which to send proxied requests
     let destination = Url::from_str(&env::var("REQUEST_PROXY_HOST")
         .expect("Missing REQUEST_PROXY_HOST destination variable!"))
-        .expect(
-        "Failed to parse destination url!",
-    );
+        .expect("Failed to parse destination url!");
 
     let destination_host = destination.host_str().unwrap();
 
     loop {
-        let client = Client::new();
+        let client = Client::builder()
+            .redirect(RedirectPolicy::none())
+            .build()
+            .unwrap();
 
         let response = reqwest::get(&server);
 
