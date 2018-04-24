@@ -5,8 +5,8 @@ extern crate hyper;
 extern crate request_proxy;
 extern crate serde;
 extern crate serde_json;
-extern crate uuid;
 extern crate tokio_timer;
+extern crate uuid;
 
 use request_proxy::types::*;
 
@@ -31,10 +31,10 @@ use dotenv::dotenv;
 pub mod error {
     use super::ProxiedResponse;
     pub use tokio_timer::TimeoutError;
-    use ::std::convert::From;
+    use std::convert::From;
 
     pub enum Error {
-        TokioTimeoutError()
+        TokioTimeoutError(),
     }
 
     impl From<TimeoutError<ProxiedResponse>> for Error {
@@ -43,7 +43,6 @@ pub mod error {
         }
     }
 }
-
 
 struct ProxiedResponse {
     request_id: Uuid,
@@ -61,11 +60,11 @@ impl Future for ProxiedResponse {
                 Some(response) => {
                     println!("Response found!");
                     Ok(Async::Ready(response))
-                },
+                }
                 None => {
                     futures::task::current().notify();
                     Ok(Async::NotReady)
-                },
+                }
             })
             .or_else(|_| {
                 println!("Blocked :(");
@@ -74,7 +73,6 @@ impl Future for ProxiedResponse {
             })
     }
 }
-
 
 struct RequestProxy {
     requests: Arc<Mutex<VecDeque<(Uuid, Request<::hyper::Body>)>>>,
@@ -95,15 +93,18 @@ impl Service for RequestProxy {
 
         self.requests
             .lock()
-            .unwrap()
+            .expect("Failed to lock requests queue!")
             .push_back((request_id.clone(), req));
 
         Box::new(
             Timer::default()
-                .timeout(ProxiedResponse {
-                    request_id,
-                    responses: self.responses.clone(),
-                }, Duration::from_secs(15))
+                .timeout(
+                    ProxiedResponse {
+                        request_id,
+                        responses: self.responses.clone(),
+                    },
+                    Duration::from_secs(15),
+                )
                 .map_err(|_| hyper::error::Error::Timeout)
                 .or_else(|_| {
                     futures::future::ok(
@@ -112,7 +113,7 @@ impl Service for RequestProxy {
                             .with_header(ContentType::plaintext())
                             .with_body("😶 Timeout"),
                     )
-                })
+                }),
         )
     }
 }
@@ -125,48 +126,49 @@ struct ProxyOutput {
 impl ProxyOutput {
     /// Pop a queued request, if any, and return the serialized request
     fn pop_request(&self) -> <Self as Service>::Future {
-        let req = { self.requests.lock().unwrap().pop_front() };
+        let req = {
+            self.requests
+                .lock()
+                .expect("Failed to lock request queue to pop request")
+                .pop_front()
+        };
 
         if req.is_none() {
             return Box::new(futures::future::ok(Response::new().with_body("NONE")));
         }
 
-        let (req_id, req) = req.unwrap();
+        let (req_id, req) = req.expect("Failed to unwrap queued Request");
         let (method, uri, version, headers, body) = req.deconstruct();
 
-        Box::new(
-            body.fold(Vec::new(), |mut acc, chunk| {
-                acc.extend_from_slice(chunk.as_ref());
-                Ok::<_, hyper::Error>(acc)
-            }).and_then(move |bytes| {
-                    let output = ProxiedRequest {
-                        id: req_id,
-                        method: method.as_ref(),
-                        uri: uri.as_ref(),
-                        version: format!("{}", version),
-                        headers: headers
-                            .iter()
-                            .map(|header| {
-                                (
-                                    header.name(),
-                                    Base64Bytes(header.raw().into_iter().fold(
-                                        Vec::new(),
-                                        |mut acc, bytes| {
-                                            acc.extend_from_slice(bytes);
-                                            acc
-                                        },
-                                    )),
-                                )
-                            })
-                            .collect(),
-                        body: Base64Bytes(bytes),
-                    };
+        Box::new(body.fold(Vec::new(), |mut acc, chunk| {
+            acc.extend_from_slice(chunk.as_ref());
+            Ok::<_, hyper::Error>(acc)
+        }).and_then(move |bytes| {
+            let output = ProxiedRequest {
+                id: req_id,
+                method: method.as_ref(),
+                uri: uri.as_ref(),
+                version: format!("{}", version),
+                headers: headers
+                    .iter()
+                    .map(|header| {
+                        (
+                            header.name(),
+                            Base64Bytes(header.raw().into_iter().fold(
+                                Vec::new(),
+                                |mut acc, bytes| {
+                                    acc.extend_from_slice(bytes);
+                                    acc
+                                },
+                            )),
+                        )
+                    })
+                    .collect(),
+                body: Base64Bytes(bytes),
+            };
 
-                    futures::future::ok(
-                        Response::new().with_body(serde_json::to_string(&output).unwrap()),
-                    )
-                }),
-        )
+            futures::future::ok(Response::new().with_body(serde_json::to_string(&output).expect("Failed to serialize to JSON")))
+        }))
     }
 
     fn push_response(&self, request: Request) -> <Self as Service>::Future {
@@ -180,7 +182,7 @@ impl ProxyOutput {
                     acc.extend_from_slice(chunk.as_ref());
                     Ok::<_, hyper::Error>(acc)
                 })
-                .map(move |bytes| String::from_utf8(bytes).unwrap())
+                .map(move |bytes| String::from_utf8(bytes).expect("Failed to create string from bytes"))
                 .and_then(move |body| {
                     let client_response = match serde_json::from_str::<ClientResponse>(&body) {
                         Ok(r) => r,
@@ -213,13 +215,16 @@ impl ProxyOutput {
                                     .with_body("🤒 Server machine broke"),
                             );
                         }
-                        Ok(_) => { 
+                        Ok(_) => {
                             /* 👍 */
-                            println!("Response to {} was successfully saved", client_response.request_id.hyphenated().to_string());
+                            println!(
+                                "Response to {} was successfully saved",
+                                client_response.request_id.hyphenated().to_string()
+                            );
                         }
                     };
 
-                    // Update so that the ProxiedResponse future can continue 
+                    // Update so that the ProxiedResponse future can continue
                     futures::task::current().notify();
 
                     futures::future::ok(
