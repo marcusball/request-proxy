@@ -7,6 +7,7 @@ extern crate serde;
 extern crate serde_json;
 extern crate tokio_timer;
 extern crate uuid;
+#[macro_use] extern crate failure;
 
 use request_proxy::types::*;
 
@@ -16,33 +17,35 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::*;
 
-use futures::Stream;
-// use futures::{Async, Future, Poll};
-use tokio_timer::*;
+use futures::{Stream, IntoFuture};
+use futures::{Async, Poll};
+use tokio_timer::Timeout;
 
 use hyper::rt::{self, Future};
 use hyper::server::conn::Http;
-use hyper::service::{service_fn_ok, Service};
+use hyper::service::{service_fn, service_fn_ok, Service};
 use hyper::{Body, Method, Server, StatusCode};
 use hyper::{Request, Response};
 
+use failure::Fail;
 use uuid::Uuid;
 
 use dotenv::dotenv;
 
-/*
-
 pub mod error {
     use super::ProxiedResponse;
     use std::convert::From;
-    pub use tokio_timer::TimeoutError;
+    pub use tokio_timer::timeout::Error as TimeoutError;
+    use failure::Error as FailureError;
 
+    #[derive(Debug, Fail)]
     pub enum Error {
+        #[fail(display = "Timeout connecting to gateway")]
         TokioTimeoutError(),
     }
 
-    impl From<TimeoutError<ProxiedResponse>> for Error {
-        fn from(_: TimeoutError<ProxiedResponse>) -> Self {
+    impl From<TimeoutError<Self>> for Error {
+        fn from(_: TimeoutError<Self>) -> Self {
             Error::TokioTimeoutError()
         }
     }
@@ -54,7 +57,7 @@ struct ProxiedResponse {
 }
 
 impl Future for ProxiedResponse {
-    type Item = Response<<RequestProxy as Service>::ResBody>;
+    type Item = Response<Body>;
     type Error = error::Error;
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
@@ -78,19 +81,14 @@ impl Future for ProxiedResponse {
     }
 }
 
+#[derive(Clone)]
 struct RequestProxy {
     requests: Arc<Mutex<VecDeque<(Uuid, Request<::hyper::Body>)>>>,
     responses: Arc<Mutex<HashMap<Uuid, Response<::hyper::Body>>>>,
 }
 
-impl Service for RequestProxy {
-    type Request = Request;
-    type Response = Response;
-    type Error = hyper::Error;
-
-    type Future = Box<Future<Item = Self::Response, Error = Self::Error>>;
-
-    fn call(&self, req: Request) -> Self::Future {
+impl RequestProxy {
+    fn call(&self, req: Request<Body>) -> impl Future<Item = Response<Body>, Error = error::Error> {
         println!("{}", &req.uri());
 
         let request_id = Uuid::new_v4();
@@ -100,27 +98,24 @@ impl Service for RequestProxy {
             .expect("Failed to lock requests queue!")
             .push_back((request_id.clone(), req));
 
-        Box::new(
-            Timer::default()
-                .timeout(
-                    ProxiedResponse {
-                        request_id,
-                        responses: self.responses.clone(),
-                    },
-                    Duration::from_secs(15),
-                )
-                .map_err(|_| hyper::error::Error::Timeout)
-                .or_else(|_| {
-                    futures::future::ok(
-                        Response::new()
-                            .with_status(StatusCode::GatewayTimeout)
-                            .with_header(ContentType::plaintext())
-                            .with_body("😶 Timeout"),
-                    )
-                }),
-        )
+        let await_response = ProxiedResponse {
+            request_id,
+            responses: self.responses.clone(),
+        };
+
+        let timeout_response: Response<Body> = Response::builder()
+                            .status(504)
+                            .header("content-type", "text/plain; charset=utf-8")
+                            .body(Body::from("😶 Timeout".to_string()))
+                            .unwrap();
+
+        Timeout::new(await_response, Duration::from_secs(15))
+                .map_err(|e| error::Error::from(e))
+                .or_else(|_| Ok(timeout_response));
     }
 }
+
+/*
 
 struct ProxyOutput {
     requests: Arc<Mutex<VecDeque<(Uuid, Request<::hyper::Body>)>>>,
@@ -282,9 +277,28 @@ fn main() {
         .parse()
         .unwrap();
 
+        let request_log = Arc::new(Mutex::new(VecDeque::new()));
+        let response_log = Arc::new(Mutex::new(HashMap::new()));
+
+        
+    
+
     rt::run(rt::lazy(move || {
+
+        let proxy = RequestProxy {
+            requests: request_log.clone(),
+            responses: response_log.clone(),
+        };
+
         let in_srv = Server::bind(&in_addr)
-            .serve(|| service_fn_ok(|_| Response::new(Body::from("IN BOUND!"))))
+            .serve(move || {
+                let proxy_clone = proxy.clone();
+
+                service_fn(move |request| {
+                    proxy_clone.call(request)
+                        .map_err(|e| e.compat())
+                })
+            })
             .map_err(|e| eprintln!("Server 1 error: {}", e));
 
         let out_srv = Server::bind(&out_addr)

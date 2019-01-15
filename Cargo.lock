@@ -775,6 +775,7 @@ version = "0.1.2"
 dependencies = [
  "base64 0.10.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "dotenv 0.13.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "failure 0.1.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures 0.1.25 (registry+https://github.com/rust-lang/crates.io-index)",
  "hyper 0.12.20 (registry+https://github.com/rust-lang/crates.io-index)",
  "reqwest 0.9.8 (registry+https://github.com/rust-lang/crates.io-index)",
