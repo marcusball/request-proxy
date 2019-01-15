@@ -7,7 +7,8 @@ extern crate serde;
 extern crate serde_json;
 extern crate tokio_timer;
 extern crate uuid;
-#[macro_use] extern crate failure;
+#[macro_use]
+extern crate failure;
 
 use request_proxy::types::*;
 
@@ -17,8 +18,8 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::*;
 
-use futures::{Stream, IntoFuture};
 use futures::{Async, Poll};
+use futures::{IntoFuture, Stream};
 use tokio_timer::Timeout;
 
 use hyper::rt::{self, Future};
@@ -34,9 +35,9 @@ use dotenv::dotenv;
 
 pub mod error {
     use super::ProxiedResponse;
+    use failure::Error as FailureError;
     use std::convert::From;
     pub use tokio_timer::timeout::Error as TimeoutError;
-    use failure::Error as FailureError;
 
     #[derive(Debug, Fail)]
     pub enum Error {
@@ -104,14 +105,14 @@ impl RequestProxy {
         };
 
         let timeout_response: Response<Body> = Response::builder()
-                            .status(504)
-                            .header("content-type", "text/plain; charset=utf-8")
-                            .body(Body::from("😶 Timeout".to_string()))
-                            .unwrap();
+            .status(504)
+            .header("content-type", "text/plain; charset=utf-8")
+            .body(Body::from("😶 Timeout".to_string()))
+            .unwrap();
 
         Timeout::new(await_response, Duration::from_secs(15))
-                .map_err(|e| error::Error::from(e))
-                .or_else(|_| Ok(timeout_response));
+            .map_err(|e| error::Error::from(e))
+            .or_else(|_| Ok(timeout_response))
     }
 }
 
@@ -277,14 +278,10 @@ fn main() {
         .parse()
         .unwrap();
 
-        let request_log = Arc::new(Mutex::new(VecDeque::new()));
-        let response_log = Arc::new(Mutex::new(HashMap::new()));
-
-        
-    
+    let request_log = Arc::new(Mutex::new(VecDeque::new()));
+    let response_log = Arc::new(Mutex::new(HashMap::new()));
 
     rt::run(rt::lazy(move || {
-
         let proxy = RequestProxy {
             requests: request_log.clone(),
             responses: response_log.clone(),
@@ -294,10 +291,7 @@ fn main() {
             .serve(move || {
                 let proxy_clone = proxy.clone();
 
-                service_fn(move |request| {
-                    proxy_clone.call(request)
-                        .map_err(|e| e.compat())
-                })
+                service_fn(move |request| proxy_clone.call(request).map_err(|e| e.compat()))
             })
             .map_err(|e| eprintln!("Server 1 error: {}", e));
 
