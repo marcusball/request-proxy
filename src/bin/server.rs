@@ -10,28 +10,32 @@ extern crate uuid;
 
 use request_proxy::types::*;
 
-use std::time::*;
-use std::env;
-use std::thread;
-use std::sync::{Arc, Mutex};
 use std::collections::{HashMap, VecDeque};
+use std::env;
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::*;
 
 use futures::Stream;
-use futures::{Async, Future, Poll};
+// use futures::{Async, Future, Poll};
 use tokio_timer::*;
 
-use hyper::server::{Http, Request, Response, Service};
-use hyper::header::ContentType;
-use hyper::{Method, StatusCode};
+use hyper::rt::{self, Future};
+use hyper::server::conn::Http;
+use hyper::service::{service_fn_ok, Service};
+use hyper::{Body, Method, Server, StatusCode};
+use hyper::{Request, Response};
 
 use uuid::Uuid;
 
 use dotenv::dotenv;
 
+/*
+
 pub mod error {
     use super::ProxiedResponse;
-    pub use tokio_timer::TimeoutError;
     use std::convert::From;
+    pub use tokio_timer::TimeoutError;
 
     pub enum Error {
         TokioTimeoutError(),
@@ -50,7 +54,7 @@ struct ProxiedResponse {
 }
 
 impl Future for ProxiedResponse {
-    type Item = <RequestProxy as Service>::Response;
+    type Item = Response<<RequestProxy as Service>::ResBody>;
     type Error = error::Error;
 
     fn poll(&mut self) -> Poll<Self::Item, Self::Error> {
@@ -140,35 +144,40 @@ impl ProxyOutput {
         let (req_id, req) = req.expect("Failed to unwrap queued Request");
         let (method, uri, version, headers, body) = req.deconstruct();
 
-        Box::new(body.fold(Vec::new(), |mut acc, chunk| {
-            acc.extend_from_slice(chunk.as_ref());
-            Ok::<_, hyper::Error>(acc)
-        }).and_then(move |bytes| {
-            let output = ProxiedRequest {
-                id: req_id,
-                method: method.as_ref(),
-                uri: uri.as_ref(),
-                version: format!("{}", version),
-                headers: headers
-                    .iter()
-                    .map(|header| {
-                        (
-                            header.name(),
-                            Base64Bytes(header.raw().into_iter().fold(
-                                Vec::new(),
-                                |mut acc, bytes| {
-                                    acc.extend_from_slice(bytes);
-                                    acc
-                                },
-                            )),
-                        )
-                    })
-                    .collect(),
-                body: Base64Bytes(bytes),
-            };
+        Box::new(
+            body.fold(Vec::new(), |mut acc, chunk| {
+                acc.extend_from_slice(chunk.as_ref());
+                Ok::<_, hyper::Error>(acc)
+            })
+            .and_then(move |bytes| {
+                let output = ProxiedRequest {
+                    id: req_id,
+                    method: method.as_ref(),
+                    uri: uri.as_ref(),
+                    version: format!("{}", version),
+                    headers: headers
+                        .iter()
+                        .map(|header| {
+                            (
+                                header.name(),
+                                Base64Bytes(header.raw().into_iter().fold(
+                                    Vec::new(),
+                                    |mut acc, bytes| {
+                                        acc.extend_from_slice(bytes);
+                                        acc
+                                    },
+                                )),
+                            )
+                        })
+                        .collect(),
+                    body: Base64Bytes(bytes),
+                };
 
-            futures::future::ok(Response::new().with_body(serde_json::to_string(&output).expect("Failed to serialize to JSON")))
-        }))
+                futures::future::ok(Response::new().with_body(
+                    serde_json::to_string(&output).expect("Failed to serialize to JSON"),
+                ))
+            }),
+        )
     }
 
     fn push_response(&self, request: Request) -> <Self as Service>::Future {
@@ -182,7 +191,9 @@ impl ProxyOutput {
                     acc.extend_from_slice(chunk.as_ref());
                     Ok::<_, hyper::Error>(acc)
                 })
-                .map(move |bytes| String::from_utf8(bytes).expect("Failed to create string from bytes"))
+                .map(move |bytes| {
+                    String::from_utf8(bytes).expect("Failed to create string from bytes")
+                })
                 .and_then(move |body| {
                     let client_response = match serde_json::from_str::<ClientResponse>(&body) {
                         Ok(r) => r,
@@ -217,45 +228,47 @@ impl ProxyOutput {
                         }
                         Ok(_) => {
                             /* 👍 */
-                            println!(
-                                "Response to {} was successfully saved",
-                                client_response.request_id.hyphenated().to_string()
-                            );
-                        }
-                    };
+println!(
+"Response to {} was successfully saved",
+client_response.request_id.hyphenated().to_string()
+);
+}
+};
 
-                    // Update so that the ProxiedResponse future can continue
-                    futures::task::current().notify();
+// Update so that the ProxiedResponse future can continue
+futures::task::current().notify();
 
-                    futures::future::ok(
-                        Response::new()
-                            .with_body(client_response.request_id.hyphenated().to_string()),
-                    )
-                }),
-        )
-    }
+futures::future::ok(
+Response::new()
+.with_body(client_response.request_id.hyphenated().to_string()),
+)
+}),
+)
+}
 }
 
 impl Service for ProxyOutput {
-    type Request = Request;
-    type Response = Response;
-    type Error = hyper::Error;
+type ReqBody = Body;
+type ResBody = Body;
+type Error = hyper::Error;
 
-    type Future = Box<Future<Item = Self::Response, Error = Self::Error>>;
+type Future = Box<Future<Item = Response<Self::ResBody>, Error = Self::Error>>;
 
-    fn call(&self, request: Request) -> Self::Future {
-        match request.method() {
-            &Method::Get => self.pop_request(),
-            &Method::Post => self.push_response(request),
-            _ => Box::new(futures::future::ok(
-                Response::new()
-                    .with_status(StatusCode::MethodNotAllowed)
-                    .with_header(ContentType::plaintext())
-                    .with_body("😬 You suck at computers"),
-            )),
-        }
-    }
+fn call(&self, request: Request<Self::ReqBody>) -> Self::Future {
+match request.method() {
+&Method::GET => self.pop_request(),
+&Method::POST => self.push_response(request),
+_ => Box::new(futures::future::ok(
+Response::builder()
+.status(StatusCode::METHOD_NOT_ALLOWED)
+.header("content-type", "text/plain")
+.body("😬 You suck at computers"),
+)),
 }
+}
+}
+
+*/
 
 fn main() {
     dotenv().ok();
@@ -268,6 +281,25 @@ fn main() {
         .unwrap_or("127.0.0.1:3001".into())
         .parse()
         .unwrap();
+
+    rt::run(rt::lazy(move || {
+        let in_srv = Server::bind(&in_addr)
+            .serve(|| service_fn_ok(|_| Response::new(Body::from("IN BOUND!"))))
+            .map_err(|e| eprintln!("Server 1 error: {}", e));
+
+        let out_srv = Server::bind(&out_addr)
+            .serve(|| service_fn_ok(|_| Response::new(Body::from("OUT BOUND"))))
+            .map_err(|e| eprintln!("Server 2 error: {}", e));
+
+        println!("Listening on http://{} and http://{}", in_addr, out_addr);
+
+        rt::spawn(in_srv);
+        rt::spawn(out_srv);
+
+        Ok(())
+    }));
+
+    /*
 
     let request_log = Arc::new(Mutex::new(VecDeque::new()));
     let request_log_clone = request_log.clone();
@@ -288,8 +320,8 @@ fn main() {
     });
 
     let child2 = thread::spawn(move || {
-        let server2 = Http::new()
-            .bind(&out_addr, move || {
+        let server2 = Server::bind(&out_addr)
+            .serve(move || {
                 Ok(ProxyOutput {
                     requests: request_log_clone.clone(),
                     responses: response_log_clone.clone(),
@@ -301,4 +333,6 @@ fn main() {
 
     let _ = child.join();
     let _ = child2.join();
+
+    */
 }

@@ -1,10 +1,10 @@
 use base64;
-use serde::ser::{Serialize, Serializer};
 use serde::de::{self, Deserialize, Deserializer, Visitor};
+use serde::ser::{Serialize, Serializer};
 use uuid::Uuid;
 
+use hyper::header::{HeaderMap, HeaderName, HeaderValue};
 use hyper::StatusCode;
-use hyper::header::{Headers, Raw};
 
 /// Wraps a type that may be expressed as a byte slice,
 pub struct Base64Bytes<T: ?Sized + AsRef<[u8]>>(pub T);
@@ -94,17 +94,36 @@ pub struct ClientResponse {
 }
 
 impl ClientResponse {
-    pub fn headers(&self) -> Headers {
+    pub fn headers(&self) -> HeaderMap {
         self.headers
             .iter()
-            .fold(Headers::new(), |mut headers, &(ref k, ref v)| {
+            .fold(HeaderMap::new(), |mut headers, &(ref k, ref v)| {
+                let name_bytes: &[u8] = k.as_ref();
                 let value_bytes: &[u8] = v.0.as_ref();
-                headers.append_raw(k.to_owned(), Raw::from(value_bytes));
+
+                let name = HeaderName::from_bytes(name_bytes);
+                let value = HeaderValue::from_bytes(value_bytes);
+
+                match (name, value) {
+                    (Ok(name), Ok(value)) => {
+                        headers.append(name, value);
+                    }
+                    (Err(e), Ok(_)) => {
+                        println!("ERROR: Invalid header name '{}'! Message: {}", k, e);
+                    }
+                    (Ok(_), Err(e)) => {
+                        println!("ERROR: Invalid value for header '{}'! Message: {}", k, e);
+                    }
+                    (Err(e1), Err(e2)) => {
+                        println!("ERROR: This whole header is fucked up: '{}'! \nMessage 1: {}\n Message 2: {}", k, e1, e2);
+                    }
+                }
+
                 headers
             })
     }
 
     pub fn status_code(&self) -> StatusCode {
-        StatusCode::try_from(self.status).unwrap_or(StatusCode::BadGateway)
+        StatusCode::from_u16(self.status).unwrap_or(StatusCode::BAD_GATEWAY)
     }
 }
