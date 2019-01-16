@@ -341,41 +341,4 @@ fn main() {
 
         Ok(())
     }));
-
-    /*
-
-    let request_log = Arc::new(Mutex::new(VecDeque::new()));
-    let request_log_clone = request_log.clone();
-
-    let response_log = Arc::new(Mutex::new(HashMap::new()));
-    let response_log_clone = response_log.clone();
-
-    let child = thread::spawn(move || {
-        let server = Http::new()
-            .bind(&in_addr, move || {
-                Ok(RequestProxy {
-                    requests: request_log.clone(),
-                    responses: response_log.clone(),
-                })
-            })
-            .unwrap();
-        server.run().unwrap();
-    });
-
-    let child2 = thread::spawn(move || {
-        let server2 = Server::bind(&out_addr)
-            .serve(move || {
-                Ok(ProxyOutput {
-                    requests: request_log_clone.clone(),
-                    responses: response_log_clone.clone(),
-                })
-            })
-            .unwrap();
-        server2.run().unwrap();
-    });
-
-    let _ = child.join();
-    let _ = child2.join();
-
-    */
 }
