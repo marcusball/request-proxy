@@ -87,7 +87,13 @@ fn main() {
         let mut headers = build_headers(&request);
         let body = String::from_utf8(request.body.0).unwrap();
 
-        let _ = headers.insert("host", HeaderValue::from_str(destination.as_ref()).unwrap());
+        let mut host = destination.host_str().unwrap().to_owned();
+
+        if let Some(port) = destination.port() {
+            host.push_str(&format!(":{}", port));
+        }
+
+        let _ = headers.insert("host", HeaderValue::from_str(&host).unwrap());
 
         println!(
             "{} {} {:?}\n{:?}\n{}",
