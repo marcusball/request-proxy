@@ -77,7 +77,7 @@ impl<'de> Visitor<'de> for Base64Visitor<Vec<u8>> {
 #[derive(Serialize, Deserialize)]
 pub struct ProxiedRequest<'a> {
     pub method: &'a str,
-    pub uri: &'a str,
+    pub uri: String,
     pub version: String,
     pub headers: Vec<(&'a str, Base64Bytes<Vec<u8>>)>,
     pub body: Base64Bytes<Vec<u8>>,
