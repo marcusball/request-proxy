@@ -10,15 +10,26 @@ extern crate uuid;
 
 use request_proxy::types::*;
 
-use std::{env, thread, time};
+use dotenv::dotenv;
 use std::io::Read;
 use std::str::FromStr;
-use dotenv::dotenv;
+use std::{env, thread, time};
 
-use hyper::{HttpVersion, Uri};
+use hyper::{Uri, Version};
+use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use reqwest::{Client, Method, RedirectPolicy};
-use reqwest::header::{Headers, Host, Raw};
 use url::Url;
+
+/// Why the fuck doesn't the HTTP crate provide something like this already?
+fn version_from_str(ver: &str) -> Version {
+    match ver {
+        "HTTP/0.9" => Version::HTTP_09,
+        "HTTP/1.0" => Version::HTTP_10,
+        "HTTP/1.1" => Version::HTTP_11,
+        "HTTP/2.0" => Version::HTTP_2,
+        v => panic!("Received invalid HTTP version '{}'!", v),
+    }
+}
 
 fn main() {
     dotenv().ok();
@@ -27,9 +38,10 @@ fn main() {
     let server = env::var("REQUEST_PROXY_SERVER").expect("Missing REQUEST_PROXY_SERVER variable!");
 
     // Hostname or IP of the server to which to send proxied requests
-    let destination = Url::from_str(&env::var("REQUEST_PROXY_HOST")
-        .expect("Missing REQUEST_PROXY_HOST destination variable!"))
-        .expect("Failed to parse destination url!");
+    let destination = Url::from_str(
+        &env::var("REQUEST_PROXY_HOST").expect("Missing REQUEST_PROXY_HOST destination variable!"),
+    )
+    .expect("Failed to parse destination url!");
 
     let destination_host = destination.host_str().unwrap();
 
@@ -59,26 +71,29 @@ fn main() {
             continue;
         }
 
-        let request: ProxiedRequest = serde_json::from_str(&content).unwrap();
+        let request: ProxiedRequest = match serde_json::from_str(&content) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("Error: {}", e);
+                continue;
+            }
+        };
 
         let method = Method::from_str(request.method).unwrap();
 
         let mut url = destination.clone();
-        url.set_path(request.uri);
+        url.set_path(&request.uri);
 
         let mut headers = build_headers(&request);
         let body = String::from_utf8(request.body.0).unwrap();
 
-        headers.set(Host::new(
-            String::from(destination_host),
-            destination.port(),
-        ));
+        let _ = headers.insert("host", HeaderValue::from_str(destination.as_ref()).unwrap());
 
         println!(
-            "{} {} {}\n{}\n{}",
+            "{} {} {:?}\n{:?}\n{}",
             &method,
-            Uri::from_str(request.uri).unwrap(),
-            HttpVersion::from_str(&request.version).unwrap(),
+            request.uri,
+            version_from_str(&request.version),
             headers,
             &body
         );
@@ -94,25 +109,17 @@ fn main() {
                 let mut body = String::new();
                 r.read_to_string(&mut body).ok();
 
-                println!("{}\n{}\n{}", r.status(), r.headers(), body);
+                println!("{}\n{:?}\n{}", r.status(), r.headers(), body);
 
                 // Build the response to send back to the server
                 let proxied_response = ClientResponse {
                     request_id: request.id,
                     status: r.status().as_u16(),
-                    headers: r.headers()
+                    headers: r
+                        .headers()
                         .iter()
-                        .map(|header| {
-                            (
-                                header.name().to_owned(),
-                                Base64Bytes(header.raw().into_iter().fold(
-                                    Vec::new(),
-                                    |mut acc, bytes| {
-                                        acc.extend_from_slice(bytes);
-                                        acc
-                                    },
-                                )),
-                            )
+                        .map(|(name, value)| {
+                            (name.to_string(), Base64Bytes(value.as_bytes().to_vec()))
                         })
                         .collect(),
                     body: Base64Bytes(body.into_bytes()),
@@ -158,13 +165,16 @@ fn main() {
 }
 
 /// Builds a Headers object from the raw header values in the ProxiedRequest
-fn build_headers(request: &ProxiedRequest) -> Headers {
+fn build_headers(request: &ProxiedRequest) -> HeaderMap {
     request
         .headers
         .iter()
-        .fold(Headers::new(), |mut headers, &(k, ref v)| {
+        .fold(HeaderMap::new(), |mut headers, &(k, ref v)| {
             let value_bytes: &[u8] = v.0.as_ref();
-            headers.append_raw(String::from(k), Raw::from(value_bytes));
+            headers.append(
+                HeaderName::from_str(k).unwrap(),
+                HeaderValue::from_bytes(value_bytes).unwrap(),
+            );
             headers
         })
 }
