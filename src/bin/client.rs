@@ -95,14 +95,23 @@ fn main() {
 
         let _ = headers.insert("host", HeaderValue::from_str(&host).unwrap());
 
+        // Print the first line; eg: "GET /some/resource HTTP/1.1".
         println!(
-            "{} {} {:?}\n{:?}\n{}",
+            "{} {} {:?}",
             &method,
             request.uri,
-            version_from_str(&request.version),
-            headers,
-            &body
+            version_from_str(&request.version)
         );
+
+        // Print all of the headers
+        for (key, value) in headers.iter() {
+            let error_message = "[undisplayable value]";
+            let value_display = value.to_str().unwrap_or_else(|_| &error_message);
+            println!("{}: {}", key, value_display);
+        }
+
+        // Print the request body
+        println!("\n\n{}", &body);
 
         let response = client
             .request(method, url)
@@ -110,12 +119,23 @@ fn main() {
             .body(body)
             .send();
 
+        println!("\n");
+
         match response {
             Ok(mut r) => {
                 let mut body = String::new();
                 r.read_to_string(&mut body).ok();
 
-                println!("{}\n{:?}\n{}", r.status(), r.headers(), body);
+                println!("{}", r.status());
+
+                // Print all of the headers
+                for (key, value) in r.headers().iter() {
+                    let error_message = "[undisplayable value]";
+                    let value_display = value.to_str().unwrap_or_else(|_| &error_message);
+                    println!("{}: {}", key, value_display);
+                }
+
+                println!("\n\n{}", body);
 
                 // Build the response to send back to the server
                 let proxied_response = ClientResponse {
