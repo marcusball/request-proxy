@@ -119,9 +119,31 @@ impl RequestProxy {
             .body(Body::from("😶 Timeout".to_string()))
             .unwrap();
 
+        let requests_clone = self.requests.clone();
+
         Timeout::new(await_response, Duration::from_secs(15))
             .map_err(|e| error::Error::from(e))
-            .or_else(|_| Ok(timeout_response))
+            .or_else(move |_| {
+                // If the request timed out, remove it from the queue.
+                Self::remove_request(request_id, requests_clone);
+
+                Ok(timeout_response)
+            })
+    }
+
+    /// Remove a request from the request queue
+    fn remove_request(
+        request_id: Uuid,
+        queue: Arc<Mutex<VecDeque<(Uuid, Request<::hyper::Body>)>>>,
+    ) {
+        // Find the index of the request
+        let mut requests = queue.lock().expect("Failed to lock the requests queue!");
+
+        let index = requests.iter().rposition(|req| req.0 == request_id);
+
+        if let Some(i) = index {
+            requests.remove(i);
+        }
     }
 }
 
