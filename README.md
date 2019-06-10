@@ -57,3 +57,11 @@ Running the client:
 ```
 cargo run --bin client
 ```
+
+## Heroku Deployment
+
+This is configured to use [heroku-buildpack-rust](https://github.com/emk/heroku-buildpack-rust). 
+Follow the instructions to create a new Heroku app based on the buildpack. 
+
+Note that the client `PROXY_SERVER` will be using HTTPS and port 443, 
+not the value of the server's `PORT`. 
