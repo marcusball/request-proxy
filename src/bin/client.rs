@@ -15,9 +15,9 @@ use std::io::Read;
 use std::str::FromStr;
 use std::{env, thread, time};
 
-use hyper::{Uri, Version};
+use hyper::Version;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
-use reqwest::{Client, Method, RedirectPolicy};
+use reqwest::{Client, Method, RedirectPolicy, StatusCode};
 use url::Url;
 
 /// Why the fuck doesn't the HTTP crate provide something like this already?
@@ -35,42 +35,61 @@ fn main() {
     dotenv().ok();
 
     // The hostname or IP of the server to which proxied requests were sent
-    let server = env::var("REQUEST_PROXY_SERVER").expect("Missing REQUEST_PROXY_SERVER variable!");
+    let server = env::var("PROXY_SERVER").expect("Missing $PROXY_SERVER variable!");
 
     // Hostname or IP of the server to which to send proxied requests
-    let destination = Url::from_str(
-        &env::var("REQUEST_PROXY_HOST").expect("Missing REQUEST_PROXY_HOST destination variable!"),
-    )
-    .expect("Failed to parse destination url!");
+    let destination =
+        Url::from_str(&env::var("PROXY_HOST").expect("Missing $PROXY_HOST destination variable!"))
+            .expect("Failed to parse destination url!");
 
-    let destination_host = destination.host_str().unwrap();
+    // Shared secret key for reading requests/pushing responses
+    let secret = env::var("PROXY_SECRET").expect("Missing $PROXY_SECRET variable!");
+
+    let client = Client::builder()
+        .redirect(RedirectPolicy::none())
+        .build()
+        .unwrap();
 
     loop {
-        let client = Client::builder()
-            .redirect(RedirectPolicy::none())
-            .build()
-            .unwrap();
+        // Send poll for any new requests.
+        let response = client
+            .get(&server)
+            .header("x-proxy-secret", secret.as_str())
+            .send();
 
-        let response = reqwest::get(&server);
+        // Unwrap the response, or pause if there was an error.
+        let mut response = match response {
+            Ok(res) => res,
+            Err(e) => {
+                eprintln!("ERROR: {:?}\n", e);
+                thread::sleep(time::Duration::from_millis(500));
+                continue;
+            }
+        };
 
-        if let Err(e) = response {
-            println!("ERROR: {:?}\n", e);
-            thread::sleep(time::Duration::from_millis(500));
-            continue;
-        }
-
-        let mut response = response.unwrap();
-
+        // Read the server's response to a string.
         let mut content = String::new();
         response
             .read_to_string(&mut content)
             .expect("Failed to read response body!");
 
-        if content.eq("NONE") {
-            thread::sleep(time::Duration::from_millis(500));
-            continue;
-        }
+        match response.status() {
+            // If the server just responded No Content then there's no requests at the moment.
+            StatusCode::NO_CONTENT => {
+                thread::sleep(time::Duration::from_millis(500));
+                continue;
+            }
+            // If the server responses unauthorized, then the secret key is probably wrong.
+            StatusCode::UNAUTHORIZED => {
+                println!("Error: Unauthorized! Is the $PROXY_SECRET correct?");
+                println!("Server responded: {}", content);
+                break;
+            }
+            // Everything else should be fine.
+            _ => {}
+        };
 
+        // Try to decode the JSON
         let request: ProxiedRequest = match serde_json::from_str(&content) {
             Ok(r) => r,
             Err(e) => {
@@ -151,7 +170,12 @@ fn main() {
                     body: Base64Bytes(body.into_bytes()),
                 };
 
-                match client.post(&server).json(&proxied_response).send() {
+                match client
+                    .post(&server)
+                    .header("x-proxy-secret", secret.as_str())
+                    .json(&proxied_response)
+                    .send()
+                {
                     Ok(_) => {
                         println!(
                             "\n=====================\nSuccessfully sent response to the server"
@@ -173,7 +197,12 @@ fn main() {
                     body: Base64Bytes(Vec::new()),
                 };
 
-                match client.post(&server).json(&proxied_response).send() {
+                match client
+                    .post(&server)
+                    .header("x-proxy-secret", secret.as_str())
+                    .json(&proxied_response)
+                    .send()
+                {
                     Ok(_) => {
                         println!("\n=====================\nSuccessfully notified server of error");
                     }

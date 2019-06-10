@@ -9,34 +9,33 @@ extern crate tokio_timer;
 extern crate uuid;
 #[macro_use]
 extern crate failure;
+extern crate rand;
 
 use request_proxy::types::*;
 
 use std::collections::{HashMap, VecDeque};
 use std::env;
+use std::str::FromStr;
 use std::sync::{Arc, Mutex};
-use std::thread;
 use std::time::*;
 
 use futures::future::Either;
+use futures::Stream;
 use futures::{Async, Poll};
-use futures::{IntoFuture, Stream};
 use tokio_timer::Timeout;
 
 use hyper::rt::{self, Future};
-use hyper::server::conn::Http;
-use hyper::service::{service_fn, service_fn_ok, Service};
+use hyper::service::service_fn;
 use hyper::{Body, Method, Server, StatusCode};
 use hyper::{Request, Response};
 
 use failure::Fail;
+use rand::Rng;
 use uuid::Uuid;
 
 use dotenv::dotenv;
 
 pub mod error {
-    use super::ProxiedResponse;
-    use failure::Error as FailureError;
     use std::convert::From;
     pub use tokio_timer::timeout::Error as TimeoutError;
 
@@ -93,12 +92,76 @@ impl Future for ProxiedResponse {
 
 #[derive(Clone)]
 struct RequestProxy {
+    secret: String,
     requests: Arc<Mutex<VecDeque<(Uuid, Request<::hyper::Body>)>>>,
     responses: Arc<Mutex<HashMap<Uuid, Response<::hyper::Body>>>>,
 }
 
 impl RequestProxy {
     fn call(&self, req: Request<Body>) -> impl Future<Item = Response<Body>, Error = error::Error> {
+        // Check if the Client read header is present, and if so, get the value.
+        match req.headers().get("x-proxy-secret").map(|h| h.to_str()) {
+            // If the value is not present, this is an external request to be forwarded to the client.
+            // Push the request to the queue for the client.
+            None => Either::A(Either::A(self.push_request(req))),
+
+            // If a secret key header was sent, and the key is correct,
+            // then handle the authenticated client's request (forward a request, or receive a response).
+            Some(Ok(key)) if key == self.secret => {
+                Either::A(Either::B(self.handle_proxy_client_request(req)))
+            }
+
+            // If the secret key header was sent, but the key is incorrect.
+            Some(Ok(x)) => {
+                println!("Incorrect secret key '{}'!", x);
+
+                Either::B(futures::future::ok(
+                    Response::builder()
+                        .status(StatusCode::UNAUTHORIZED)
+                        .header("content-type", "text/plain; charset=utf-8")
+                        .body(Body::from("🐸 GET OUT".to_string()))
+                        .unwrap(),
+                ))
+            }
+
+            // If the secret key header was sent, but we failed to read the value as a String.
+            Some(Err(e)) => {
+                eprintln!("Error decoding Secret Key: {}", e);
+
+                Either::B(futures::future::ok(
+                    Response::builder()
+                        .status(StatusCode::BAD_REQUEST)
+                        .header("content-type", "text/plain; charset=utf-8")
+                        .body(Body::from(
+                            "🤢 Your request was bad and you should feel bad",
+                        ))
+                        .unwrap(),
+                ))
+            }
+        }
+    }
+
+    fn handle_proxy_client_request(
+        &self,
+        request: Request<Body>,
+    ) -> impl Future<Item = Response<Body>, Error = error::Error> {
+        match request.method() {
+            &Method::GET => Either::A(Either::A(self.pop_request())),
+            &Method::POST => Either::A(Either::B(self.push_response(request))),
+            _ => Either::B(futures::future::ok(
+                Response::builder()
+                    .status(StatusCode::METHOD_NOT_ALLOWED)
+                    .header("content-type", "text/plain")
+                    .body(Body::from("😬 You suck at computers"))
+                    .unwrap(),
+            )),
+        }
+    }
+
+    fn push_request(
+        &self,
+        req: Request<Body>,
+    ) -> impl Future<Item = Response<Body>, Error = error::Error> {
         println!("{}", &req.uri());
 
         let request_id = Uuid::new_v4();
@@ -145,15 +208,7 @@ impl RequestProxy {
             requests.remove(i);
         }
     }
-}
 
-#[derive(Clone)]
-struct ProxyOutput {
-    requests: Arc<Mutex<VecDeque<(Uuid, Request<::hyper::Body>)>>>,
-    responses: Arc<Mutex<HashMap<Uuid, Response<::hyper::Body>>>>,
-}
-
-impl ProxyOutput {
     /// Pop a queued request, if any, and return the serialized request
     fn pop_request(&self) -> impl Future<Item = Response<Body>, Error = error::Error> {
         let req = {
@@ -165,7 +220,10 @@ impl ProxyOutput {
 
         if req.is_none() {
             return Either::A(futures::future::ok(
-                Response::builder().body(Body::from("NONE")).unwrap(),
+                Response::builder()
+                    .status(StatusCode::NO_CONTENT)
+                    .body(Body::empty())
+                    .unwrap(),
             ));
         }
 
@@ -295,52 +353,37 @@ impl ProxyOutput {
     }
 }
 
-impl ProxyOutput {
-    fn call(
-        &self,
-        request: Request<Body>,
-    ) -> impl Future<Item = Response<Body>, Error = error::Error> {
-        match request.method() {
-            &Method::GET => Either::A(Either::A(self.pop_request())),
-            &Method::POST => Either::A(Either::B(self.push_response(request))),
-            _ => Either::B(futures::future::ok(
-                Response::builder()
-                    .status(StatusCode::METHOD_NOT_ALLOWED)
-                    .header("content-type", "text/plain")
-                    .body(Body::from("😬 You suck at computers"))
-                    .unwrap(),
-            )),
-        }
-    }
-}
-
 fn main() {
     dotenv().ok();
 
-    let in_addr = env::var("PROXY_LISTEN_IN")
-        .unwrap_or("127.0.0.1:3000".into())
-        .parse()
-        .unwrap();
-    let out_addr = env::var("PROXY_LISTEN_OUT")
-        .unwrap_or("127.0.0.1:3001".into())
-        .parse()
-        .unwrap();
+    // Read the port on which to listen.
+    let port = u16::from_str(&std::env::var("PORT").unwrap_or("3000".into()))
+        .expect("Failed to parse $PORT!");
+
+    // Read the IP address on which to listen
+    let ip = std::net::IpAddr::from_str(&std::env::var("LISTEN_IP").unwrap_or("127.0.0.1".into()))
+        .expect("Failed to parse $LISTEN_IP");
+
+    // Construct the full Socket address
+    let listen_addr = std::net::SocketAddr::new(ip, port);
+
+    // Get the configured $PROXY_SECRET or generate a one-time random key.
+    let secret = env::var("PROXY_SECRET")
+        .unwrap_or_else(|_| base64::encode(&rand::thread_rng().gen::<[u8; 30]>()));
+
+    println!("Using '{}' as proxy secret key.", secret);
 
     let request_log = Arc::new(Mutex::new(VecDeque::new()));
     let response_log = Arc::new(Mutex::new(HashMap::new()));
 
     rt::run(rt::lazy(move || {
         let proxy = RequestProxy {
+            secret: secret,
             requests: request_log.clone(),
             responses: response_log.clone(),
         };
 
-        let output = ProxyOutput {
-            requests: request_log.clone(),
-            responses: response_log.clone(),
-        };
-
-        let in_srv = Server::bind(&in_addr)
+        let in_srv = Server::bind(&listen_addr)
             .serve(move || {
                 let proxy_clone = proxy.clone();
 
@@ -348,18 +391,9 @@ fn main() {
             })
             .map_err(|e| eprintln!("Server 1 error: {}", e));
 
-        let out_srv = Server::bind(&out_addr)
-            .serve(move || {
-                let output_clone = output.clone();
-
-                service_fn(move |request| output_clone.call(request).map_err(|e| e.compat()))
-            })
-            .map_err(|e| eprintln!("Server 2 error: {}", e));
-
-        println!("Listening on http://{} and http://{}", in_addr, out_addr);
+        println!("Listening on http://{}", listen_addr);
 
         rt::spawn(in_srv);
-        rt::spawn(out_srv);
 
         Ok(())
     }));
