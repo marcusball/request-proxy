@@ -1,0 +1,7 @@
+# flyctl launch added from .gitignore
+
+target
+**/**/*.rs.bk
+**/.env
+
+**/.vscode

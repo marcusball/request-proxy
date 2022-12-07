@@ -58,10 +58,19 @@ Running the client:
 cargo run --bin client
 ```
 
-## Heroku Deployment
+## Fly.io Deployment 
 
-This is configured to use [heroku-buildpack-rust](https://github.com/emk/heroku-buildpack-rust). 
-Follow the instructions to create a new Heroku app based on the buildpack. 
+Ensure the `PROXY_SECRET` is set using:
 
-Note that the client `PROXY_SERVER` will be using HTTPS and port 443, 
-not the value of the server's `PORT`. 
+```
+fly secrets set PROXY_SECRET=yourSecretHere
+```
+
+`PORT` and `LISTEN_IP` are already configured in `fly.toml` but they can be overwritten as necessary.
+**Make sure `LISTEN_IP` is set to `0.0.0.0` or some other public IP!**
+
+Deployment should be as easy as:
+
+```
+fly launch
+```
