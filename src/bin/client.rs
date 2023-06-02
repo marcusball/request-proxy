@@ -58,8 +58,6 @@ async fn poll(client: &Client, server: &String, secret: &String, destination: &U
         }
     };
 
-    println!("content: {}, status: {}", &content, &response_status);
-
     match response_status {
         // If the server just responded No Content then there's no requests at the moment.
         StatusCode::NO_CONTENT => {

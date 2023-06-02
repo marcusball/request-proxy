@@ -77,18 +77,14 @@ impl Future for ProxiedResponse {
         self.responses
             .try_lock()
             .and_then(|mut res| match res.remove(&self.request_id) {
-                Some(response) => {
-                    println!("Response found!");
-                    Ok(Poll::Ready(response))
-                }
+                Some(response) => Ok(Poll::Ready(response)),
                 None => {
                     waker.clone().wake();
                     Ok(Poll::Pending)
                 }
             })
             .or_else(|_| {
-                print!(".");
-                std::thread::sleep(std::time::Duration::from_millis(500));
+                std::thread::sleep(std::time::Duration::from_millis(100));
                 waker.clone().wake();
                 Ok::<_, error::Error>(Poll::Pending)
             })
@@ -249,7 +245,7 @@ impl RequestProxy {
     }
 
     async fn push_response(&self, request: Request<Body>) -> Result<Response<Body>, error::Error> {
-        println!("Received client POST response");
+        // println!("Received client POST response");
 
         let bytes = body::to_bytes(request.into_body())
             .await
