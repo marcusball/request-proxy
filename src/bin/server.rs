@@ -277,16 +277,9 @@ impl RequestProxy {
         {
             // Scope to make the borrow checker happy
             let headers = response.headers_mut();
-            for (name, value) in client_response.headers().into_iter() {
-                if let Some(name) = name {
-                    headers.append(name, value);
-                } else {
-                    match value.to_str() {
-                        Ok(value_str) => eprintln!("Somehow received a header with no name? Value: {}", value_str),
-                        Err(e) => eprintln!("Somehow received a header with no name, and unprintable value; Value string conversion error: {}", e),
-                    }
-                }
-            }
+            client_response.headers().iter().for_each(|(name, value)| {
+                headers.append(name, value.clone());
+            });
         }
 
         let response = response;

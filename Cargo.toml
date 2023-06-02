@@ -2,7 +2,7 @@
 authors = ["Marcus Ball <marcus.ball@live.com>"]
 edition = "2021"
 name = "request_proxy"
-version = "0.3.1"
+version = "0.3.2"
 
 [dependencies]
 base64 = "0.21.2"
