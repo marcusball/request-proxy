@@ -281,7 +281,10 @@ impl RequestProxy {
                 if let Some(name) = name {
                     headers.append(name, value);
                 } else {
-                    eprintln!("Somehow received a header with no name?");
+                    match value.to_str() {
+                        Ok(value_str) => eprintln!("Somehow received a header with no name? Value: {}", value_str),
+                        Err(e) => eprintln!("Somehow received a header with no name, and unprintable value; Value string conversion error: {}", e),
+                    }
                 }
             }
         }
