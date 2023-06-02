@@ -305,7 +305,7 @@ impl RequestProxy {
 
         Ok(Response::builder()
             .body(Body::from(
-                client_response.request_id.to_hyphenated().to_string(),
+                client_response.request_id.hyphenated().to_string(),
             ))
             .unwrap())
     }

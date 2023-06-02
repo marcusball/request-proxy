@@ -6,7 +6,6 @@ extern crate reqwest;
 extern crate serde;
 extern crate serde_json;
 extern crate tokio;
-extern crate url;
 extern crate uuid;
 
 use request_proxy::types::*;
