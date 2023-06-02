@@ -5,7 +5,8 @@ extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 extern crate serde_json;
-extern crate tokio_timer;
+extern crate tokio;
 extern crate uuid;
+extern crate void;
 
 pub mod types;
