@@ -1,4 +1,4 @@
-use base64;
+use base64::{engine::general_purpose as b64, Engine};
 use serde::de::{self, Deserialize, Deserializer, MapAccess, Visitor};
 use serde::ser::{Serialize, Serializer};
 use std::marker::PhantomData;
@@ -24,7 +24,7 @@ impl<T: ?Sized + AsRef<[u8]>> Serialize for Base64Bytes<T> {
     where
         S: Serializer,
     {
-        base64::encode(&self.0).serialize(serializer)
+        b64::STANDARD.encode(&self.0).serialize(serializer)
     }
 }
 
@@ -59,21 +59,21 @@ impl<'de> Visitor<'de> for Base64Visitor<Vec<u8>> {
     where
         E: de::Error,
     {
-        Ok(base64::decode(v).unwrap())
+        Ok(b64::STANDARD.decode(v).unwrap())
     }
 
     fn visit_borrowed_str<E>(self, v: &'de str) -> Result<Self::Value, E>
     where
         E: de::Error,
     {
-        Ok(base64::decode(v).unwrap())
+        Ok(b64::STANDARD.decode(v).unwrap())
     }
 
     fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
     where
         E: de::Error,
     {
-        Ok(base64::decode(&v).unwrap())
+        Ok(b64::STANDARD.decode(&v).unwrap())
     }
 }
 

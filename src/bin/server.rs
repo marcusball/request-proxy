@@ -20,6 +20,8 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::*;
 
+use base64::{engine::general_purpose, Engine};
+
 use futures::future::{Future, TryFutureExt};
 use futures::task::{Context, Poll};
 use tokio::sync::Mutex;
@@ -325,8 +327,9 @@ async fn main() {
     let listen_addr = std::net::SocketAddr::new(ip, port);
 
     // Get the configured $PROXY_SECRET or generate a one-time random key.
-    let secret = env::var("PROXY_SECRET")
-        .unwrap_or_else(|_| base64::encode(&rand::thread_rng().gen::<[u8; 30]>()));
+    let secret = env::var("PROXY_SECRET").unwrap_or_else(|_| {
+        general_purpose::STANDARD.encode(&rand::thread_rng().gen::<[u8; 30]>())
+    });
 
     println!("Using '{}' as proxy secret key.", secret);
 
