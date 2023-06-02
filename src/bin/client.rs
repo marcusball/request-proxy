@@ -164,10 +164,7 @@ async fn poll(client: &Client, server: &String, secret: &String, destination: &U
             let proxied_response = ClientResponse {
                 request_id: request.id,
                 status: r_status.as_u16(),
-                headers: r_headers
-                    .iter()
-                    .map(|(name, value)| (name.to_string(), Base64Bytes(value.as_bytes().to_vec())))
-                    .collect(),
+                headers: ClientResponse::parse_header_map(&r_headers),
                 body: Base64Bytes(body.into_bytes()),
             };
 
